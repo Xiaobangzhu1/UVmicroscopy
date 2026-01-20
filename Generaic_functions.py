@@ -19,6 +19,7 @@ from PyQt5.QtGui import QPixmap, QImage
 import numpy as np
 
 import os
+import io
 
 class LOG():
     def __init__(self, ui):
@@ -165,6 +166,7 @@ def GenMosaic_XYGalvo(Xmin, Xmax, Ymin, Ymax, XFOV, YFOV, overlap=10):
 
 
 from matplotlib import pyplot as plt
+plt.switch_backend('Agg')
 
 def LinePlot(AOwaveform, DOwaveform = None, m=2, M=4):
     # clear content on plot
@@ -221,10 +223,12 @@ def ScatterPlot(mosaic):
     plt.xticks(fontsize=15)
     plt.yticks(fontsize=15)
     plt.rcParams['savefig.dpi']=150
-    # save plot as jpeg
-    plt.savefig('scatter.jpg')
-    # load waveform image
-    pixmap = QPixmap('scatter.jpg')
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    pixmap = QPixmap()
+    pixmap.loadFromData(buf.getvalue())
+    buf.close()
     return pixmap
 
 def SharpnessPlot(position_sharpness_dict : dict):

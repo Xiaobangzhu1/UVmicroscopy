@@ -5,8 +5,11 @@ __pycache__/
 
 log_files/
 
-config.ini
+/config.ini
+/export_config_file.txt
 
 scatter.jpg
 
 README.txt
+
+.DS_Store

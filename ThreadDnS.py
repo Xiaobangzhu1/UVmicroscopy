@@ -101,10 +101,11 @@ class DnSThread(QThread):
         data = np.uint16(data.reshape(Zpixels, Ypixels//2, 2, Xpixels//2, 2).mean(axis=(2, 4))*16)
         Xpixels = Xpixels//2
         Ypixels = Ypixels//2
-        if data.shape[0] > 1:
-            self.image=np.mean(data,0)
+        if Zpixels > 1:
+            self.image=data[Zpixels//2]
         else:
             self.image = data[0]
+        # print(self.image[0,0:5])
         pixmap = RGBImagePlot(matrix1 = np.float32(self.image[::scale, ::scale]), m=self.ui.Imagemin.value(), M=self.ui.Imagemax.value())
         # clear content on the waveformLabel
         # self.ui.Image.clear()
@@ -146,7 +147,7 @@ class DnSThread(QThread):
         Xpixels = Xpixels//2
         Ypixels = Ypixels//2
         if data.shape[0]> 1:
-            self.image=np.mean(data,0)
+            self.image=data[data.shape[0]//2]
         else:
             self.image = data[0]
             
@@ -172,11 +173,17 @@ class DnSThread(QThread):
         self.ui.Mosaic.setPixmap(pixmap)
         if self.ui.Save.isChecked():
             filenametiff, filenamebin = self.MosaicFilename([Ypixels,Xpixels,Zpixels])
-            # self.WriteData(data, [self.ui.DIR.toPlainText(),'/mosaic/',filenamebin])
-            tif = TIFF.open(self.ui.DIR.toPlainText()+'/mosaic/'+filenametiff, mode='w')
-            for ii in range(Zpixels):
-                tif.write_image(data[ii,:,:])
-            tif.close()
+            try:
+                # self.WriteData(data, [self.ui.DIR.toPlainText(),'/mosaic/',filenamebin])
+                tif = TIFF.open(self.ui.DIR_remote.toPlainText()+'/mosaic/'+filenametiff, mode='w')
+                for ii in range(Zpixels):
+                    tif.write_image(data[ii,:,:])
+                tif.close()
+            except:
+                tif = TIFF.open(self.ui.DIR.toPlainText()+'/mosaic/'+filenametiff, mode='w')
+                for ii in range(Zpixels):
+                    tif.write_image(data[ii,:,:])
+                tif.close()
     
     # 保存马赛克拼图图像
     def Save_Mosaic(self):

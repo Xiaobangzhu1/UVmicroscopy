@@ -48,6 +48,8 @@ class WeaverThread(QThread):
                     # make directories
                     if not os.path.exists(self.ui.DIR.toPlainText()+'/mosaic'):
                         os.mkdir(self.ui.DIR.toPlainText()+'/mosaic')
+                    if not os.path.exists(self.ui.DIR_remote.toPlainText()+'/mosaic'):
+                        os.mkdir(self.ui.DIR_remote.toPlainText()+'/mosaic')
                     if self.ui.PreMosaic.isChecked():
                         self.PreMosaic()
                     else:

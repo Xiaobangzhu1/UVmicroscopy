@@ -16,7 +16,7 @@ from my_ui import Ui_MainWindow
 
 import os
 from PyQt5 import QtWidgets as QW
-from PyQt5.QtWidgets import  QMainWindow, QFileDialog, QWidget, QVBoxLayout
+from PyQt5.QtWidgets import  QMainWindow, QFileDialog, QWidget, QVBoxLayout, QMessageBox
 
 import PyQt5.QtCore as qc
 import numpy as np
@@ -135,12 +135,24 @@ class MainWindow(QMainWindow):
             
              dir_choose = QFileDialog.getExistingDirectory(self,  
                                          "选取文件夹",  
-                                         os.getcwd()) # 起始路径
+                                         self.ui.DIR.toPlainText()) # 起始路径
+        
+             if dir_choose == "":
+                 print("\n取消选择")
+             else:
+                 self.ui.DIR.setText(dir_choose)
+        self.chooseDir_remote()
+    def chooseDir_remote(self):
+        if self.ui.Save.isChecked():
+            
+             dir_choose = QFileDialog.getExistingDirectory(self,  
+                                         "选取文件夹",  
+                                         self.ui.DIR_remote.toPlainText()) # 起始路径
         
              if dir_choose == "":
                  print("\n取消选择")
                  return
-             self.ui.DIR.setText(dir_choose)
+             self.ui.DIR_remote.setText(dir_choose)
              
     def LoadConfig(self):
        fileName_choose, filetype = QFileDialog.getOpenFileName(self,  
@@ -161,7 +173,7 @@ class MainWindow(QMainWindow):
     def chooseTileFlagFile(self):
         fileName_choose, filetype = QFileDialog.getOpenFileName(self,  
                                    "select surface file",  
-                                   os.getcwd(), # 起始路径 
+                                   self.ui.DIR.toPlainText(), # 起始路径 
                                    "All Files (*);;Text Files (*.txt)")   # 设置文件扩展名过滤,用双分号间隔
 
         if fileName_choose == "":
@@ -169,7 +181,34 @@ class MainWindow(QMainWindow):
            return
         self.ui.Tile_DIR.setText(fileName_choose)
         
+    def validate_mosaic_range(self):
+        x_start = self.ui.XStart.value()
+        x_stop = self.ui.XStop.value()
+        y_start = self.ui.YStart.value()
+        y_stop = self.ui.YStop.value()
+        if x_start <= x_stop and y_start <= y_stop:
+            return True
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Question)
+        msg.setWindowTitle("校验扫描范围")
+        msg.setText("检测到起始值大于终止值，是否自动交换继续？")
+        msg.setInformativeText(f"XStart={x_start}, XStop={x_stop}\nYStart={y_start}, YStop={y_stop}")
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+        if msg.exec() == QMessageBox.Yes:
+            if x_start > x_stop:
+                self.ui.XStart.setValue(x_stop)
+                self.ui.XStop.setValue(x_start)
+            if y_start > y_stop:
+                self.ui.YStart.setValue(y_stop)
+                self.ui.YStop.setValue(y_start)
+            self.ui.statusbar.showMessage("已交换起止范围")
+            return True
+        self.ui.statusbar.showMessage("已取消：起止范围未调整")
+        return False
+        
     def update_Mosaic(self):
+        if not self.validate_mosaic_range():
+            return
         self.Mosaic_pattern, status = GenMosaic_XYGalvo(self.ui.XStart.value(),\
                                         self.ui.XStop.value(),\
                                         self.ui.YStart.value(),\
