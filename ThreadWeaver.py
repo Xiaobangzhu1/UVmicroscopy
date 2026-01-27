@@ -20,6 +20,7 @@ import datetime
 # import Requester
 # from tqdm import tqdm
 from matplotlib import pyplot as plt
+plt.switch_backend('Agg')
 
 class WeaverThread(QThread):
     def __init__(self):
@@ -27,6 +28,7 @@ class WeaverThread(QThread):
         
         self.mosaic = None
         self.exit_message = 'weaver thread successfully exited'
+        self.enable_mask_filter = False  # !DEBUG关闭后不再执行 mask 逻辑
         
     def run(self):
         # self.InitMemory()
@@ -189,6 +191,9 @@ class WeaverThread(QThread):
                                         self.ui.XFOV.value(),\
                                         self.ui.YFOV.value(),\
                                         self.ui.Overlap.value())
+        if self.Mosaic_pattern is None:
+            self.ui.statusbar.showMessage(status)
+            return
         # get total number of strips, i.e.，xstage positions
         self.total_Y = self.Mosaic_pattern.shape[1]
         self.total_X = self.Mosaic_pattern.shape[2]
@@ -237,6 +242,9 @@ class WeaverThread(QThread):
                                         self.ui.XFOV.value(),\
                                         self.ui.YFOV.value(),\
                                         self.ui.Overlap.value())
+        if self.Mosaic_pattern is None:
+            self.ui.statusbar.showMessage(status)
+            return 'Error'
         # get total number of strips, i.e.，xstage positions
         self.total_Y = self.Mosaic_pattern.shape[1]
         self.total_X = self.Mosaic_pattern.shape[2]
@@ -328,15 +336,21 @@ class WeaverThread(QThread):
     def Re_evaluate_mosaic(self):
         # evaluate the previous mosaic figure, remove empty tiles, and extend tissue boundary
         # self.surf = np.flip(np.rot90(self.DnSBackQueue.get()),0)
+        if not getattr(self, "enable_mask_filter", True):
+            self.tile_flag_rearange = np.copy(self.tile_flag)
+            self.tile_flag = self.tile_flag_rearange
+            return
         self.surf = self.DnSBackQueue.get()
         plt.figure()
         plt.subplot(2,1,1)
         plt.imshow(self.surf,vmin=0,vmax=5550)
         # segment tissue area using threshold
-        mask = np.float32(self.surf>self.ui.AgarValue.value())
+        # DEBUG: 原来是大于
+        # mask = np.float32(self.surf>self.ui.AgarValue.value())
+        mask = np.float32(self.surf<self.ui.AgarValue.value())
         plt.subplot(2,1,2)
         plt.imshow(mask)
-        plt.show()
+        plt.close()
         
         # for snake-scanning of mosaic area, flip odd rows of tile_flag to make it zig-zag scan
         [xx,yy] = np.shape(self.tile_flag)
@@ -388,7 +402,7 @@ class WeaverThread(QThread):
         plt.figure()
         # plt.subplot(1,3,1)
         plt.imshow(self.tile_flag_rearange)
-        plt.show()
+        plt.close()
         self.tile_flag_rearange = np.flip(self.tile_flag_rearange)
         # plt.subplot(1,3,2)
         # plt.imshow(self.tile_flag_rearange)

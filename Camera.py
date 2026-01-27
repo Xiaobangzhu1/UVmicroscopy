@@ -109,7 +109,7 @@ class Camera(QThread):
                 try:
                     buf = self.hcam.data_stream[0].get_image(timeout=10000)
                     img = buf.get_numpy_array()
-                    img = np.rot90(img,1)
+                    img = np.rot90(img,3)
                     all_images.append(img)
                 except:
                     print('timeout error! Camera did not receive trigger')
@@ -129,7 +129,7 @@ class Camera(QThread):
                 try:
                     buf = self.hcam.data_stream[0].get_image(timeout=10000)
                     img = buf.get_numpy_array()
-                    img = np.rot90(img,1)
+                    img = np.rot90(img,3)
                     all_images.append(img)
                 except:
                     print('timeout error! Camera did not receive trigger')
