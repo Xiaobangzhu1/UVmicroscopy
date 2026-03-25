@@ -6,6 +6,8 @@ Created on Wed Oct 16 11:09:15 2024
 """
 import sys, os
 import threading
+import faulthandler
+import atexit
 import numpy as np
 from queue import Queue
 from PyQt5.QtWidgets import *
@@ -16,6 +18,11 @@ from Generaic_functions import LOG, report_exception
 from Actions import *
 from MainWindow import MainWindow
 from Dialogs import  StageDialog
+
+_crash_log_path = os.path.join(os.getcwd(), 'crash_dump.log')
+_crash_log_fp = open(_crash_log_path, 'a', buffering=1, encoding='utf-8')
+faulthandler.enable(file=_crash_log_fp, all_threads=True)
+atexit.register(_crash_log_fp.close)
 
 CQueue = Queue()
 CBackQueue = Queue()
@@ -141,6 +148,9 @@ class GUI(MainWindow):
         report_exception(self.ui, self.log, args.exc_value, where=f'Threading/{args.thread.name}')
         
     def Stop_allThreads(self):
+        stop_message = 'Stop_allThreads called: sending exit signal to DnS/Camera/DO/Weaver queues'
+        print(stop_message)
+        self.log.write(stop_message)
         exit_element=EXIT()
         DnSQueue.put(exit_element)
         CQueue.put(exit_element) 
@@ -341,11 +351,13 @@ class GUI(MainWindow):
         DnSQueue.put(an_action)
         
     def closeEvent(self, event):
-        print('Exiting all threads')
+        message = 'MainWindow closeEvent triggered: exiting all threads and saving settings'
+        print(message)
+        self.log.write(message)
         self.Stop_allThreads()
         settings = qc.QSettings("config.ini", qc.QSettings.IniFormat)
         self.SaveSettings()
-        if self.Camera_thread.isFinished:
+        if self.Camera_thread.isFinished():
             event.accept()
         else:
             event.ignore()

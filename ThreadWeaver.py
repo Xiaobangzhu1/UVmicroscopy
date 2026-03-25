@@ -188,6 +188,10 @@ class WeaverThread(QThread):
                                         self.ui.XFOV.value(),\
                                         self.ui.YFOV.value(),\
                                         self.ui.Overlap.value())
+        if self.Mosaic_pattern is None:
+            self.ui.statusbar.showMessage(status)
+            self.log.write(status)
+            return
         # get total number of strips, i.e.，xstage positions
         self.total_Y = self.Mosaic_pattern.shape[1]
         self.total_X = self.Mosaic_pattern.shape[2]
@@ -236,6 +240,10 @@ class WeaverThread(QThread):
                                         self.ui.XFOV.value(),\
                                         self.ui.YFOV.value(),\
                                         self.ui.Overlap.value())
+        if self.Mosaic_pattern is None:
+            self.ui.statusbar.showMessage(status)
+            self.log.write(status)
+            return 'Error'
         # get total number of strips, i.e.，xstage positions
         self.total_Y = self.Mosaic_pattern.shape[1]
         self.total_X = self.Mosaic_pattern.shape[2]

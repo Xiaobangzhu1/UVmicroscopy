@@ -216,6 +216,9 @@ class MainWindow(QMainWindow):
                                         self.ui.XFOV.value(),\
                                         self.ui.YFOV.value(),\
                                         self.ui.Overlap.value())
+        if self.Mosaic_pattern is None:
+            self.ui.statusbar.showMessage(status)
+            return
         # get total number of strips, i.e.，xstage positions
         total_X = self.Mosaic_pattern.shape[1]
         total_Y = self.Mosaic_pattern.shape[2]
