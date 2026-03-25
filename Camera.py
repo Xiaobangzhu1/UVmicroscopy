@@ -24,7 +24,6 @@ from PyQt5.QtCore import QThread
 from PyQt5.QtWidgets import *
 import numpy as np
 # from qimage2ndarray import *
-import traceback
 from Generaic_functions import *  # 自定义函数集合，可能包含图像处理或转换方法
 from libtiff import TIFF
 # import qimage2ndarray as qpy
@@ -88,10 +87,9 @@ class Camera(QThread):
                     self.ui.statusbar.showMessage(message)
                     self.log.write(message)
             except Exception as error:
-                message = "\nError occurred, skipping: " + str(error)
-                self.ui.statusbar.showMessage(message)
+                message = "Error occurred, skipping camera action"
                 self.log.write(message)
-                print(traceback.format_exc())
+                report_exception(self.ui, self.log, error, where=f"Camera/{self.item.action}")
             num += 1
             self.item = self.queue.get()  # 获取下一个任务
         self.Close()

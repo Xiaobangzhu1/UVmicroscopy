@@ -13,7 +13,6 @@ import time
 import numpy as np
 from Generaic_functions import *
 from Actions import *
-import traceback
 import os
 import datetime
 # import cv2
@@ -113,11 +112,9 @@ class WeaverThread(QThread):
                     # self.ui.statusbar.showMessage(status)
 
             except Exception as error:
-                message = "An error occurred,"+"skip the acquisition action\n"
-                self.ui.statusbar.showMessage(message)
-                # self.ui.PrintOut.append(message)
+                message = "An error occurred, skip the acquisition action"
                 self.log.write(message)
-                print(traceback.format_exc())
+                report_exception(self.ui, self.log, error, where=f"WeaverThread/{self.item.action}")
             # reset RUN button
             self.ui.RunButton.setChecked(False)
             self.ui.RunButton.setText('Go')

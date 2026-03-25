@@ -7,9 +7,8 @@ Created on Tue Dec 12 18:26:44 2023
 """
 
 from PyQt5.QtCore import  QThread
-from Generaic_functions import RGBImagePlot
+from Generaic_functions import RGBImagePlot, report_exception
 import numpy as np
-import traceback
 import matplotlib.pyplot as plt
 import datetime
 import os
@@ -72,12 +71,9 @@ class DnSThread(QThread):
                 if time.time()-start>1:
                     print('time for DnS:',round(time.time()-start,3))
             except Exception as error:
-                message = "\nAn error occurred:"+" skip the display and save action\n"
-                print(message)
-                self.ui.statusbar.showMessage(message)
-                # self.ui.PrintOut.append(message)
+                message = "An error occurred: skip the display and save action"
                 self.log.write(message)
-                print(traceback.format_exc())
+                report_exception(self.ui, self.log, error, where=f"DnSThread/{self.item.action}")
             # num+=1
             # print(num, 'th display\n')
             self.item = self.queue.get()
@@ -179,7 +175,8 @@ class DnSThread(QThread):
                 for ii in range(Zpixels):
                     tif.write_image(data[ii,:,:])
                 tif.close()
-            except:
+            except Exception as error:
+                report_exception(self.ui, self.log, error, where='DnSThread/Display_Mosaic(remote save)')
                 tif = TIFF.open(self.ui.DIR.toPlainText()+'/mosaic/'+filenametiff, mode='w')
                 for ii in range(Zpixels):
                     tif.write_image(data[ii,:,:])

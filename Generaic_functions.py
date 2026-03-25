@@ -20,6 +20,7 @@ import numpy as np
 
 import os
 import io
+import traceback
 
 class LOG():
     def __init__(self, ui):
@@ -41,6 +42,71 @@ class LOG():
         fp.write(message+'\n')
         fp.close()
         # return 0
+
+
+def _get_root_cause(exc: Exception):
+    """返回异常链最深层的异常对象。"""
+    root = exc
+    seen = set()
+    while root is not None and id(root) not in seen:
+        seen.add(id(root))
+        if root.__cause__ is not None:
+            root = root.__cause__
+        elif root.__context__ is not None:
+            root = root.__context__
+        else:
+            break
+    return root
+
+
+def format_exception_with_root(exc: Exception, where: str = ''):
+    """
+    返回 (short_message, detail_message)
+    short_message: 适合 statusbar
+    detail_message: 适合日志与控制台
+    """
+    root = _get_root_cause(exc)
+    header = f"[{where}] " if where else ''
+    short_message = f"{header}{type(root).__name__}: {root}"
+
+    chain = []
+    cur = exc
+    seen = set()
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        chain.append(f"{type(cur).__name__}: {cur}")
+        if cur.__cause__ is not None:
+            cur = cur.__cause__
+        elif cur.__context__ is not None:
+            cur = cur.__context__
+        else:
+            break
+
+    tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    detail_message = (
+        f"{header}Exception chain (outer -> inner):\n"
+        + '\n'.join(chain)
+        + f"\n\nRoot cause:\n{type(root).__name__}: {root}\n\nTraceback:\n{tb}"
+    )
+    return short_message, detail_message
+
+
+def report_exception(ui=None, log=None, exc: Exception = None, where: str = ''):
+    """统一输出异常：状态栏显示根因，日志/控制台打印完整链路与 traceback。"""
+    if exc is None:
+        return
+    short_message, detail_message = format_exception_with_root(exc, where=where)
+    try:
+        if ui is not None:
+            ui.statusbar.showMessage(short_message)
+    except Exception:
+        pass
+    try:
+        if log is not None:
+            log.write(detail_message)
+    except Exception:
+        pass
+    print(detail_message)
 
 
 

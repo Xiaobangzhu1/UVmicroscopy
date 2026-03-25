@@ -5,13 +5,14 @@ Created on Wed Oct 16 11:09:15 2024
 @author: admin
 """
 import sys, os
+import threading
 import numpy as np
 from queue import Queue
 from PyQt5.QtWidgets import *
 from PyQt5.QtWidgets import QApplication
 from PyQt5 import QtWidgets as QW
 import PyQt5.QtCore as qc
-from Generaic_functions import LOG
+from Generaic_functions import LOG, report_exception
 from Actions import *
 from MainWindow import MainWindow
 from Dialogs import  StageDialog
@@ -75,6 +76,8 @@ class GUI(MainWindow):
     def __init__(self):
         super().__init__()
         self.log = LOG(self.ui)
+        sys.excepthook = self._handle_uncaught_exception
+        threading.excepthook = self._handle_threading_exception
         self.ui.RunButton.clicked.connect(self.run_task)
         self.ui.PauseButton.clicked.connect(self.PauseFunction)
         
@@ -124,6 +127,18 @@ class GUI(MainWindow):
         self.Camera_thread.start()
         self.DnS_thread = DnSThread_2(self.ui, self.log)
         self.DnS_thread.start()
+
+    def _handle_uncaught_exception(self, exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        report_exception(self.ui, self.log, exc_value, where='MainThread/Uncaught')
+
+    def _handle_threading_exception(self, args):
+        # args: threading.ExceptHookArgs
+        if args.exc_value is None:
+            return
+        report_exception(self.ui, self.log, args.exc_value, where=f'Threading/{args.thread.name}')
         
     def Stop_allThreads(self):
         exit_element=EXIT()

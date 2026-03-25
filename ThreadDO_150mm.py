@@ -30,8 +30,8 @@ try:
 except:
     SIM = True
 import time
-import traceback
 import numpy as np
+from Generaic_functions import report_exception
 
 # stage enable/disable digital value
 # enable = 0
@@ -144,13 +144,10 @@ class DOThread(QThread):
                     print(message)
                     # self.ui.PrintOut.append(message)
                     self.log.write(message)
-            except Exception:
-                message = "\nAn error occurred,"+" skip the DO action\n"
-                print(message)
-                self.ui.statusbar.showMessage(message)
-                # self.ui.PrintOut.append(message)
+            except Exception as error:
+                message = "An error occurred, skip the DO action"
                 self.log.write(message)
-                print(traceback.format_exc())
+                report_exception(self.ui, self.log, error, where=f"DOThread/{self.item.action}")
             self.item = self.queue.get()
         self.ui.statusbar.showMessage('DO thread successfully exited')
     def Init_all_termial(self):
