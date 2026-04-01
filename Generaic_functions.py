@@ -21,6 +21,12 @@ import numpy as np
 import os
 import io
 import traceback
+import threading
+import datetime
+
+_BREADCRUMB_LOCK = threading.Lock()
+_BREADCRUMB_SEQ = 0
+_BREADCRUMB_PATH = os.path.join(os.getcwd(), 'crash_breadcrumb.log')
 
 class LOG():
     def __init__(self, ui):
@@ -42,6 +48,43 @@ class LOG():
         fp.write(message+'\n')
         fp.close()
         # return 0
+
+
+def parse_debug_flag(name, default=False):
+    """Parse env switch values like 1/0, true/false, on/off."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    text = str(raw).strip().lower()
+    if text in ('1', 'true', 'yes', 'on'):
+        return True
+    if text in ('0', 'false', 'no', 'off'):
+        return False
+    return default
+
+
+def write_breadcrumb(tag, log=None, detail=''):
+    """Write a single-line flushed breadcrumb for crash boundary tracing."""
+    global _BREADCRUMB_SEQ
+    with _BREADCRUMB_LOCK:
+        _BREADCRUMB_SEQ += 1
+        seq = _BREADCRUMB_SEQ
+    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+    tid = threading.get_ident()
+    suffix = f" | {detail}" if detail else ''
+    line = f"[{seq:06d}] {ts} [T{tid}] {tag}{suffix}"
+    try:
+        with open(_BREADCRUMB_PATH, 'a', buffering=1, encoding='utf-8') as fp:
+            fp.write(line + '\n')
+            fp.flush()
+    except Exception:
+        pass
+    try:
+        if log is not None:
+            log.write('[BREADCRUMB] ' + line)
+    except Exception:
+        pass
+    return line
 
 
 def _get_root_cause(exc: Exception):

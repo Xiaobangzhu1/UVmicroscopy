@@ -33,11 +33,16 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+        self._loading_settings = False
+        self._settings_save_timer = qc.QTimer(self)
+        self._settings_save_timer.setSingleShot(True)
+        self._settings_save_timer.timeout.connect(self.SaveSettings)
         self.LoadSettings()
         self.setStageMinMax() 
         #################### load configuration settings
         self.update_Mosaic()
         self.connectActions()
+        self._connect_auto_save_signals()
         
     def setStageMinMax(self):
         self.ui.XPosition.setMinimum(self.ui.Xmin.value())
@@ -52,6 +57,7 @@ class MainWindow(QMainWindow):
       
 
     def LoadSettings(self, filename = ''):
+        self._loading_settings = True
         if any(filename):
             settings = qc.QSettings(filename, qc.QSettings.IniFormat)
         else:
@@ -93,6 +99,7 @@ class MainWindow(QMainWindow):
                     self.ui.__getattribute__(ii).setChecked(status)
                 except:
                     print(ii, ' setting missing, using default...')
+        self._loading_settings = False
                 
     def SaveSettings(self):
         settings = qc.QSettings("config.ini", qc.QSettings.IniFormat)
@@ -109,6 +116,32 @@ class MainWindow(QMainWindow):
                 settings.setValue(ii,self.ui.__getattribute__(ii).text())
             elif type(self.ui.__getattribute__(ii)) == QW.QPushButton:
                 settings.setValue(ii,self.ui.__getattribute__(ii).isChecked())
+
+    def _schedule_settings_save(self):
+        if self._loading_settings:
+            return
+        # Debounce frequent UI changes (typing/spin hold) before writing config.ini.
+        self._settings_save_timer.start(250)
+
+    def _connect_auto_save_signals(self):
+        for ii in dir(self.ui):
+            widget = self.ui.__getattribute__(ii)
+            try:
+                if type(widget) == QW.QComboBox:
+                    widget.currentTextChanged.connect(self._schedule_settings_save)
+                elif type(widget) == QW.QDoubleSpinBox:
+                    widget.valueChanged.connect(self._schedule_settings_save)
+                elif type(widget) == QW.QSpinBox:
+                    widget.valueChanged.connect(self._schedule_settings_save)
+                elif type(widget) == QW.QTextEdit:
+                    widget.textChanged.connect(self._schedule_settings_save)
+                elif type(widget) == QW.QLineEdit:
+                    widget.textChanged.connect(self._schedule_settings_save)
+                elif type(widget) == QW.QPushButton and widget.isCheckable():
+                    widget.toggled.connect(self._schedule_settings_save)
+            except Exception:
+                # Some widgets may not expose expected signals in runtime-generated UI.
+                pass
             
     def connectActions(self):
         

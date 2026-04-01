@@ -8,6 +8,7 @@ import sys, os
 import threading
 import faulthandler
 import atexit
+from datetime import datetime
 import numpy as np
 from queue import Queue
 from PyQt5.QtWidgets import *
@@ -23,6 +24,26 @@ _crash_log_path = os.path.join(os.getcwd(), 'crash_dump.log')
 _crash_log_fp = open(_crash_log_path, 'a', buffering=1, encoding='utf-8')
 faulthandler.enable(file=_crash_log_fp, all_threads=True)
 atexit.register(_crash_log_fp.close)
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+_log_dir = os.path.join(_base_dir, 'log_files')
+os.makedirs(_log_dir, exist_ok=True)
+_exit_reason_log_paths = [
+    os.path.join(_base_dir, 'exit_reason.log'),
+    os.path.join(_log_dir, 'exit_reason.log'),
+]
+
+def _append_exit_reason_line(line):
+    for path in _exit_reason_log_paths:
+        try:
+            with open(path, 'a', encoding='utf-8') as fp:
+                fp.write(line + '\n')
+                fp.flush()
+        except Exception:
+            pass
+
+_append_exit_reason_line(
+    f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}] reason=SESSION_LOADED; detail=pid={os.getpid()}; last_action=MODULE_IMPORT"
+)
 
 CQueue = Queue()
 CBackQueue = Queue()
@@ -83,8 +104,13 @@ class GUI(MainWindow):
     def __init__(self):
         super().__init__()
         self.log = LOG(self.ui)
+        self.last_action = 'GUI_INIT'
         sys.excepthook = self._handle_uncaught_exception
         threading.excepthook = self._handle_threading_exception
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._on_about_to_quit)
+        self._record_exit_reason('APP_START', detail=f'pid={os.getpid()}')
         self.ui.RunButton.clicked.connect(self.run_task)
         self.ui.PauseButton.clicked.connect(self.PauseFunction)
         
@@ -135,19 +161,32 @@ class GUI(MainWindow):
         self.DnS_thread = DnSThread_2(self.ui, self.log)
         self.DnS_thread.start()
 
+    def _record_exit_reason(self, reason, detail=''):
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+        line = f'[{now}] reason={reason}; detail={detail}; last_action={self.last_action}'
+        print(line)
+        self.log.write(line)
+        _append_exit_reason_line(line)
+
+    def _on_about_to_quit(self):
+        self._record_exit_reason('APP_ABOUT_TO_QUIT')
+
     def _handle_uncaught_exception(self, exc_type, exc_value, exc_tb):
         if issubclass(exc_type, KeyboardInterrupt):
             sys.__excepthook__(exc_type, exc_value, exc_tb)
             return
+        self._record_exit_reason('UNCAUGHT_EXCEPTION', detail=str(exc_value))
         report_exception(self.ui, self.log, exc_value, where='MainThread/Uncaught')
 
     def _handle_threading_exception(self, args):
         # args: threading.ExceptHookArgs
         if args.exc_value is None:
             return
+        self._record_exit_reason('THREADING_EXCEPTION', detail=f'{args.thread.name}: {args.exc_value}')
         report_exception(self.ui, self.log, args.exc_value, where=f'Threading/{args.thread.name}')
         
     def Stop_allThreads(self):
+        self._record_exit_reason('STOP_ALL_THREADS_CALLED')
         stop_message = 'Stop_allThreads called: sending exit signal to DnS/Camera/DO/Weaver queues'
         print(stop_message)
         self.log.write(stop_message)
@@ -202,15 +241,25 @@ class GUI(MainWindow):
             
     def Vibratome(self):
         if self.ui.VibEnabled.isChecked():
+            self.last_action = 'VIBRATOME_START_CLICKED'
+            self._record_exit_reason('VIBRATOME_UI_CLICK', detail='start')
             self.ui.VibEnabled.setText('Stop Vibratome')
             an_action = DOAction('startVibratome')
             DOQueue.put(an_action)
+            self.last_action = 'VIBRATOME_START_WAIT_ACK'
             DOBackQueue.get()
+            self.last_action = 'VIBRATOME_START_ACK'
+            self._record_exit_reason('VIBRATOME_ACTION_RETURNED', detail='startVibratome ack received')
         else:
+            self.last_action = 'VIBRATOME_STOP_CLICKED'
+            self._record_exit_reason('VIBRATOME_UI_CLICK', detail='stop')
             self.ui.VibEnabled.setText('Start Vibratome')
             an_action = DOAction('stopVibratome')
             DOQueue.put(an_action)
+            self.last_action = 'VIBRATOME_STOP_WAIT_ACK'
             DOBackQueue.get()
+            self.last_action = 'VIBRATOME_STOP_ACK'
+            self._record_exit_reason('VIBRATOME_ACTION_RETURNED', detail='stopVibratome ack received')
         
     def SliceDirection(self):
         if self.ui.SliceDir.isChecked():
@@ -351,6 +400,8 @@ class GUI(MainWindow):
         DnSQueue.put(an_action)
         
     def closeEvent(self, event):
+        self.last_action = 'CLOSE_EVENT'
+        self._record_exit_reason('MAINWINDOW_CLOSE_EVENT')
         message = 'MainWindow closeEvent triggered: exiting all threads and saving settings'
         print(message)
         self.log.write(message)

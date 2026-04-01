@@ -1,0 +1,21 @@
+# IMPLEMENT_PLAN
+
+## 用户需求（2026-04-01）
+- 问题：调用 vibratome 时程序偶发退出，退出后看不到 exit 原因文件。
+- 约束：不修改业务实现逻辑（不改 vibratome 控制流程），只增强“每次退出原因”的可观测性与落盘可见性。
+- 目标：程序退出后，用户能在磁盘上直接看到退出原因记录。
+
+## 执行步骤
+1. 保留现有功能路径，仅增强日志与诊断。
+2. 退出原因日志改为固定绝对路径（基于脚本目录），避免 cwd 变化导致文件写到其他位置。
+3. 同时写两份日志：
+   - 项目根目录: exit_reason.log
+   - log_files 目录: log_files/exit_reason.log
+4. 程序启动时立即写入 APP_START 记录，确保即使崩溃前无 closeEvent 也能看到文件已创建。
+5. vibratome 点击前、下发后、等待返回前后都记录 last_action。
+6. closeEvent/aboutToQuit/uncaught exception/thread exception 继续记录。
+
+## 验收标准
+- 启动程序后，磁盘可见 exit_reason.log（根目录或 log_files）。
+- 执行 vibratome 操作后，无论正常退出还是异常退出，日志可见最后动作与退出触发原因。
+- 不引入业务行为变化（仅日志增强）。

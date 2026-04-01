@@ -20,7 +20,7 @@ ZDISTANCE = 1
 global SIM
 SIM = False
 ###########################################
-from PyQt5.QtCore import  QThread
+from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot
 
 try:
     import artdaq as daq
@@ -31,7 +31,9 @@ except:
     SIM = True
 import time
 import numpy as np
-from Generaic_functions import report_exception
+from Generaic_functions import report_exception, parse_debug_flag, write_breadcrumb
+
+DEBUG_DISABLE_DO = parse_debug_flag('DEBUG_DISABLE_DO', False)
 
 # stage enable/disable digital value
 # enable = 0
@@ -67,11 +69,52 @@ global ZCH
 ZCH = pow(2,2) # port 0 line2
 
 class DOThread(QThread):
+    request_set_value = pyqtSignal(str, float)
+
     def __init__(self):
         super().__init__()
         self.DOtask = None
+        self.request_set_value.connect(self._apply_set_value)
+
+    @pyqtSlot(str, float)
+    def _apply_set_value(self, widget_name, value):
+        widget = getattr(self.ui, widget_name, None)
+        if widget is not None:
+            widget.setValue(float(value))
+
+    def _set_ui_value(self, widget_name, value):
+        self.request_set_value.emit(widget_name, float(value))
+
+    def _validate_move_params(self, axis, speed, distance_per_revolve, waveform_len):
+        if speed is None or speed <= 0:
+            msg = f'{axis} move aborted: invalid speed={speed}, speed must be > 0'
+            self.log.write(msg)
+            write_breadcrumb('DO_PARAM_INVALID', log=self.log, detail=msg)
+            return None
+        if distance_per_revolve is None or distance_per_revolve <= 0:
+            msg = f'{axis} move aborted: invalid DISTANCE={distance_per_revolve}'
+            self.log.write(msg)
+            write_breadcrumb('DO_PARAM_INVALID', log=self.log, detail=msg)
+            return None
+        if waveform_len is None or waveform_len <= 0:
+            msg = f'{axis} move aborted: invalid samps_per_chan={waveform_len}'
+            self.log.write(msg)
+            write_breadcrumb('DO_PARAM_INVALID', log=self.log, detail=msg)
+            return None
+
+        rate = int(STEPS * 2 / distance_per_revolve * round(float(speed), 2))
+        if rate <= 0 or rate > 1_000_000:
+            msg = f'{axis} move aborted: invalid sample rate={rate}, expected [1,1000000]'
+            self.log.write(msg)
+            write_breadcrumb('DO_PARAM_INVALID', log=self.log, detail=msg)
+            return None
+        return rate
     
     def run(self):
+        if DEBUG_DISABLE_DO:
+            self.SIM = True
+            self.log.write('DEBUG_DISABLE_DO=1, DO hardware path disabled')
+            write_breadcrumb('DO_DISABLED_BY_FLAG', log=self.log)
         self.Init_all_termial()
         self.DOBackQueue.get()
         self.QueueOut()
@@ -121,8 +164,10 @@ class DOThread(QThread):
                 elif self.item.action == 'ZMDOWN':
                      self.StepMicroMove(Direction = 'DOWN')
                 elif self.item.action == 'startVibratome':
+                    write_breadcrumb('DO_VIBRATOME_START_DISPATCH', log=self.log)
                     self.startVibratome()
                 elif self.item.action == 'stopVibratome':
+                    write_breadcrumb('DO_VIBRATOME_STOP_DISPATCH', log=self.log)
                     self.stopVibratome()
                 elif self.item.action == 'Init':
                     self.Init_all_termial()
@@ -169,10 +214,10 @@ class DOThread(QThread):
         # LED enable terminal
         self.PumpEnable = self.ui.AODOboard.toPlainText()+'/'+self.ui.PumpEnable.currentText()
         # print(self.PumpEnable)
-        self.ui.Xcurrent.setValue(self.ui.XPosition.value())
-        self.ui.Ycurrent.setValue(self.ui.YPosition.value())
-        self.ui.Zcurrent.setValue(self.ui.ZPosition.value())
-        self.ui.ZMcurrent.setValue(self.ui.ZMPosition.value())
+        self._set_ui_value('Xcurrent', self.ui.XPosition.value())
+        self._set_ui_value('Ycurrent', self.ui.YPosition.value())
+        self._set_ui_value('Zcurrent', self.ui.ZPosition.value())
+        self._set_ui_value('ZMcurrent', self.ui.ZMPosition.value())
         message = "Stage position updated..."
     
         self.ui.statusbar.showMessage(message)
@@ -185,10 +230,10 @@ class DOThread(QThread):
         # self.Xpos = self.ui.XPosition.value()
         # self.Ypos = self.ui.YPosition.value()
         # self.Zpos = self.ui.ZPosition.value()
-        self.ui.Xcurrent.setValue(self.ui.XPosition.value())
-        self.ui.Ycurrent.setValue(self.ui.YPosition.value())
-        self.ui.Zcurrent.setValue(self.ui.ZPosition.value())
-        self.ui.ZMcurrent.setValue(self.ui.ZMPosition.value())
+        self._set_ui_value('Xcurrent', self.ui.XPosition.value())
+        self._set_ui_value('Ycurrent', self.ui.YPosition.value())
+        self._set_ui_value('Zcurrent', self.ui.ZPosition.value())
+        self._set_ui_value('ZMcurrent', self.ui.ZMPosition.value())
         
         message = "Stage position updated..."
 
@@ -260,7 +305,7 @@ class DOThread(QThread):
         # plt.plot(DOwaveform[0:5000])
         return DOwaveform
         
-    def Move(self, axis = 'X'):
+    def Move(self, axis = 'X', target_pos=None):
         ###########################
         # you can only move one axis at a time
         ###########################
@@ -272,14 +317,14 @@ class DOThread(QThread):
             line = XCH
             DISTANCE = XDISTANCE
             speed = self.ui.XSpeed.value()
-            pos = self.ui.XPosition.value()
+            pos = self.ui.XPosition.value() if target_pos is None else target_pos
             if pos>self.ui.Xmax.value()or pos<self.ui.Xmin.value():
                 message = 'X target postion invalid, abort...'
                 # self.ui.PrintOut.append(message)
                 self.log.write(message)
                 print(message)
                 return message
-            distance = self.ui.XPosition.value()-self.ui.Xcurrent.value()
+            distance = pos-self.ui.Xcurrent.value()
             if distance > 0:
                 direction = XFORWARD
                 sign = 1
@@ -291,14 +336,14 @@ class DOThread(QThread):
             line = YCH
             DISTANCE = YDISTANCE
             speed = self.ui.YSpeed.value()
-            pos = self.ui.YPosition.value()
+            pos = self.ui.YPosition.value() if target_pos is None else target_pos
             if pos>self.ui.Ymax.value() or pos<self.ui.Ymin.value():
                 message = 'Y target postion invalid, abort...'
                 # self.ui.PrintOut.append(message)
                 self.log.write(message)
                 print(message)
                 return message
-            distance = self.ui.YPosition.value()-self.ui.Ycurrent.value()
+            distance = pos-self.ui.Ycurrent.value()
             if distance > 0:
                 direction = YFORWARD
                 sign = 1
@@ -310,14 +355,14 @@ class DOThread(QThread):
             line = ZCH
             DISTANCE = ZDISTANCE
             speed = self.ui.ZSpeed.value()
-            pos = self.ui.ZPosition.value()
+            pos = self.ui.ZPosition.value() if target_pos is None else target_pos
             if pos>self.ui.Zmax.value() or pos<self.ui.Zmin.value():
                 message = 'Z target postion invalid, abort...'
                 # self.ui.PrintOut.append(message)
                 self.log.write(message)
                 print(message)
                 return message
-            distance = self.ui.ZPosition.value()-self.ui.Zcurrent.value()
+            distance = pos-self.ui.Zcurrent.value()
             if distance > 0:
                 direction = ZFORWARD
                 sign = 1
@@ -333,44 +378,77 @@ class DOThread(QThread):
             self.log.write(message)
             return 0
         if not (SIM or self.SIM):
+            write_breadcrumb('DO_MOVE_BEGIN', log=self.log, detail=f'axis={axis}, distance={distance}, speed={speed}')
             with daq.Task('Move_task') as DOtask, daq.Task('stageEnable') as stageEnabletask:
                 # configure stage direction and enable
+                write_breadcrumb('DO_STAGE_ENABLE_ADD_CHAN_BEFORE', log=self.log)
                 stageEnabletask.do_channels.add_do_chan(lines='Robot/port2/line0:3')
+                write_breadcrumb('DO_STAGE_ENABLE_ADD_CHAN_AFTER', log=self.log)
+
+                write_breadcrumb('DO_STAGE_ENABLE_WRITE_BEFORE', log=self.log, detail=f'value={direction + enable}')
                 stageEnabletask.write(direction + enable, auto_start = True)
+                write_breadcrumb('DO_STAGE_ENABLE_WRITE_AFTER', log=self.log)
+
+                write_breadcrumb('DO_STAGE_ENABLE_WAIT_BEFORE', log=self.log)
                 stageEnabletask.wait_until_done(timeout = 1)
+                write_breadcrumb('DO_STAGE_ENABLE_WAIT_AFTER', log=self.log)
+
+                write_breadcrumb('DO_STAGE_ENABLE_STOP_BEFORE', log=self.log)
                 stageEnabletask.stop()
+                write_breadcrumb('DO_STAGE_ENABLE_STOP_AFTER', log=self.log)
                 time.sleep(0.1)
                 # configure DO task 
                 DOwaveform = self.stagewave_ramp(distance, DISTANCE)
                 DOwaveform = np.uint32(DOwaveform * line)
+                rate = self._validate_move_params(axis, speed, DISTANCE, len(DOwaveform))
+                if rate is None:
+                    return
                 message = axis+' moving: '+str(round(np.sum(DOwaveform)/line/25000*DISTANCE*sign,3))+'mm'+' target pos: '+str(pos)
                 print(message)
                 # self.ui.PrintOut.append(message)
                 self.log.write(message)
                 
+                write_breadcrumb('DO_MOVE_ADD_CHAN_BEFORE', log=self.log)
                 DOtask.do_channels.add_do_chan(lines='Robot/port0/line0:7')
-                DOtask.timing.cfg_samp_clk_timing(rate=STEPS*2//DISTANCE*round(speed,2), \
+                write_breadcrumb('DO_MOVE_ADD_CHAN_AFTER', log=self.log)
+
+                write_breadcrumb('DO_MOVE_CFG_TIMING_BEFORE', log=self.log, detail=f'rate={rate}, samps={len(DOwaveform)}')
+                DOtask.timing.cfg_samp_clk_timing(rate=rate, \
                                                   active_edge= Edge.FALLING,\
                                                   sample_mode=Atype.FINITE,samps_per_chan=len(DOwaveform))
+                write_breadcrumb('DO_MOVE_CFG_TIMING_AFTER', log=self.log)
+
+                write_breadcrumb('DO_MOVE_WRITE_BEFORE', log=self.log)
                 DOtask.write(DOwaveform, auto_start = False)
+                write_breadcrumb('DO_MOVE_WRITE_AFTER', log=self.log)
+
+                write_breadcrumb('DO_MOVE_START_BEFORE', log=self.log)
                 DOtask.start()
+                write_breadcrumb('DO_MOVE_START_AFTER', log=self.log)
+
+                write_breadcrumb('DO_MOVE_WAIT_BEFORE', log=self.log)
                 DOtask.wait_until_done(timeout =300)
+                write_breadcrumb('DO_MOVE_WAIT_AFTER', log=self.log)
+
+                write_breadcrumb('DO_MOVE_STOP_BEFORE', log=self.log)
                 DOtask.stop()
+                write_breadcrumb('DO_MOVE_STOP_AFTER', log=self.log)
                 # message = axis+' current pos: '+str(pos)
                 # print(message)
                 # # self.ui.PrintOut.append(message)
                 # self.log.write(message)
                 # settingtask.write(XDISABLE + YDISABLE + ZDISABLE, auto_start = True)
+            write_breadcrumb('DO_MOVE_DONE', log=self.log, detail=f'axis={axis}')
                 
         if axis == 'X':
-            self.ui.Xcurrent.setValue(self.ui.Xcurrent.value()+distance)
-            # self.ui.XPosition.setValue(self.Xpos)
+            self._set_ui_value('Xcurrent', pos)
+            self._set_ui_value('XPosition', pos)
         elif axis == 'Y':
-            self.ui.Ycurrent.setValue(self.ui.Ycurrent.value()+distance)
-            # self.ui.YPosition.setValue(self.Ypos)
+            self._set_ui_value('Ycurrent', pos)
+            self._set_ui_value('YPosition', pos)
         elif axis == 'Z':
-            self.ui.Zcurrent.setValue(self.ui.Zcurrent.value()+distance)
-            # self.ui.ZPosition.setValue(self.Zpos)
+            self._set_ui_value('Zcurrent', pos)
+            self._set_ui_value('ZPosition', pos)
         message = 'X :'+str(self.ui.Xcurrent.value())+' Y :'+str(round(self.ui.Ycurrent.value(),2))+' Z :'+str(self.ui.Zcurrent.value())
         print(message)
         self.log.write(message)
@@ -380,21 +458,29 @@ class DOThread(QThread):
         self.DOBackQueue.put(0)
         
     def StepMove(self, axis, Direction):
+        write_breadcrumb('DO_STEP_MOVE_BEGIN', log=self.log, detail=f'axis={axis}, direction={Direction}')
         if axis == 'X':
             distance = self.ui.Xstagestepsize.value() if Direction == 'UP' else -self.ui.Xstagestepsize.value() 
-            self.ui.XPosition.setValue(self.ui.Xcurrent.value()+distance)
-            self.Move(axis)
+            target = self.ui.Xcurrent.value()+distance
+            self._set_ui_value('XPosition', target)
+            write_breadcrumb('DO_STEP_MOVE_CALL_MOVE', log=self.log, detail=f'axis={axis}, distance={distance}')
+            self.Move(axis, target_pos=target)
             self.DOBackQueue.put(0)
         elif axis == 'Y':
             distance = self.ui.Ystagestepsize.value() if Direction == 'UP' else -self.ui.Ystagestepsize.value() 
-            self.ui.YPosition.setValue(self.ui.Ycurrent.value()+distance)
-            self.Move(axis)
+            target = self.ui.Ycurrent.value()+distance
+            self._set_ui_value('YPosition', target)
+            write_breadcrumb('DO_STEP_MOVE_CALL_MOVE', log=self.log, detail=f'axis={axis}, distance={distance}')
+            self.Move(axis, target_pos=target)
             self.DOBackQueue.put(0)
         elif axis == 'Z':
             distance = self.ui.Zstagestepsize.value() if Direction == 'UP' else -self.ui.Zstagestepsize.value() 
-            self.ui.ZPosition.setValue(self.ui.Zcurrent.value()+distance)
-            self.Move(axis)
+            target = self.ui.Zcurrent.value()+distance
+            self._set_ui_value('ZPosition', target)
+            write_breadcrumb('DO_STEP_MOVE_CALL_MOVE', log=self.log, detail=f'axis={axis}, distance={distance}')
+            self.Move(axis, target_pos=target)
             self.DOBackQueue.put(0)
+        write_breadcrumb('DO_STEP_MOVE_DONE', log=self.log, detail=f'axis={axis}, direction={Direction}')
             
 
     def Light_off(self):
@@ -430,10 +516,10 @@ class DOThread(QThread):
          
     def StepMicroMove(self,Direction):
         if Direction == 'UP':
-            self.ui.ZMPosition.setValue(self.ui.ZMPosition.value()+self.ui.ZMstagestepsize.value())
+            self._set_ui_value('ZMPosition', self.ui.ZMPosition.value()+self.ui.ZMstagestepsize.value())
             self.MoveMicro()
         elif Direction == 'DOWN':
-            self.ui.ZMPosition.setValue(self.ui.ZMPosition.value()-self.ui.ZMstagestepsize.value())
+            self._set_ui_value('ZMPosition', self.ui.ZMPosition.value()-self.ui.ZMstagestepsize.value())
             self.MoveMicro()
         self.DOBackQueue.put(0)
         
@@ -449,7 +535,7 @@ class DOThread(QThread):
                 AOtask.write(voltage, auto_start=True)
                 AOtask.wait_until_done(timeout = 0.05)
                 AOtask.stop()
-                self.ui.ZMcurrent.setValue(pos)
+                self._set_ui_value('ZMcurrent', pos)
                 
     def Zstack(self):
         Steps = self.ui.Zstack.value()
@@ -457,10 +543,10 @@ class DOThread(QThread):
             self.ui.XStartHeight.value()# um
         # print(pos)
         for istep in range(Steps):
-            self.ui.ZMPosition.setValue(pos[istep])
+            self._set_ui_value('ZMPosition', pos[istep])
             self.AOtask.write(pos[istep] * 0.1, auto_start = True)
             self.AOtask.wait_until_done(timeout = 0.005)
-            self.ui.ZMcurrent.setValue(pos[istep])
+            self._set_ui_value('ZMcurrent', pos[istep])
             self.DOtask.write(1, auto_start = True)
             self.DOtask.wait_until_done(timeout = 0.005)
             # time.sleep(0.5)
@@ -488,30 +574,48 @@ class DOThread(QThread):
             
                         
     def startVibratome(self):
+        write_breadcrumb('DO_VIBRATOME_START_BEGIN', log=self.log)
         if not (SIM or self.SIM):
             settingtask = daq.Task('vibratome')
             # print(self.VibEnable)
+            write_breadcrumb('DO_VIBRATOME_ADD_CHAN_BEFORE', log=self.log, detail=f'line={self.VibEnable}')
             settingtask.do_channels.add_do_chan(lines=self.VibEnable,
             line_grouping=LineGrouping.CHAN_PER_LINE)
+            write_breadcrumb('DO_VIBRATOME_ADD_CHAN_AFTER', log=self.log)
+            write_breadcrumb('DO_VIBRATOME_WRITE_BEFORE', log=self.log, detail='value=1')
             settingtask.write(1, auto_start = True)
+            write_breadcrumb('DO_VIBRATOME_WRITE_AFTER', log=self.log)
+            write_breadcrumb('DO_VIBRATOME_WAIT_BEFORE', log=self.log)
             settingtask.wait_until_done(timeout = 0.1)
+            write_breadcrumb('DO_VIBRATOME_WAIT_AFTER', log=self.log)
             settingtask.stop()
             settingtask.close()
             # print('here')
+            write_breadcrumb('DO_VIBRATOME_PUMP_ON_BEFORE', log=self.log)
             self.Pump_on()
+            write_breadcrumb('DO_VIBRATOME_PUMP_ON_AFTER', log=self.log)
         self.DOBackQueue.put(0)
+        write_breadcrumb('DO_VIBRATOME_START_DONE', log=self.log)
         
     def stopVibratome(self):
+        write_breadcrumb('DO_VIBRATOME_STOP_BEGIN', log=self.log)
         if not (SIM or self.SIM):
             settingtask = daq.Task('vibratome')
+            write_breadcrumb('DO_VIBRATOME_ADD_CHAN_BEFORE', log=self.log, detail=f'line={self.VibEnable}')
             settingtask.do_channels.add_do_chan(lines=self.VibEnable,
             line_grouping=LineGrouping.CHAN_PER_LINE)
+            write_breadcrumb('DO_VIBRATOME_ADD_CHAN_AFTER', log=self.log)
+            write_breadcrumb('DO_VIBRATOME_WRITE_BEFORE', log=self.log, detail='value=0')
             settingtask.write(0, auto_start = True)
+            write_breadcrumb('DO_VIBRATOME_WRITE_AFTER', log=self.log)
+            write_breadcrumb('DO_VIBRATOME_WAIT_BEFORE', log=self.log)
             settingtask.wait_until_done(timeout = 0.1)
+            write_breadcrumb('DO_VIBRATOME_WAIT_AFTER', log=self.log)
             settingtask.stop()
             settingtask.close()
             #self.Pump_off()
         self.DOBackQueue.put(0)
+        write_breadcrumb('DO_VIBRATOME_STOP_DONE', log=self.log)
 
     
     #Pump line: P1.4-water out ; P1.3-water in

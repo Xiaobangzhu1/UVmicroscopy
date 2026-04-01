@@ -1,0 +1,3 @@
+[2026-04-01 11:46:01.184806] reason=SESSION_LOADED; detail=pid=10088; last_action=MODULE_IMPORT
+[2026-04-01 11:47:51.690134] reason=SESSION_LOADED; detail=pid=38632; last_action=MODULE_IMPORT
+[2026-04-01 11:47:52.810759] reason=APP_START; detail=pid=38632; last_action=GUI_INIT

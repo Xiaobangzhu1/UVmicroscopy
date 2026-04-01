@@ -8,8 +8,11 @@ log_files/
 /config.ini
 /export_config_file.txt
 
-scatter.jpg
+/crash_dump.log
+/crash_breadcrumb.log
 
-README.txt
+/scatter.jpg
+
+/README.txt
 
 .DS_Store
