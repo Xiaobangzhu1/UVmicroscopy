@@ -1,0 +1,28 @@
+Windows fatal exception: access violation
+
+Current thread 0x0000132c (most recent call first):
+  File "d:\UVcode\UVmicroscopy\ThreadDnS.py", line 157 in Display_Mosaic
+  File "d:\UVcode\UVmicroscopy\ThreadDnS.py", line 47 in QueueOut
+  File "d:\UVcode\UVmicroscopy\ThreadDnS.py", line 35 in run
+
+Thread 0x00008724 (most recent call first):
+  File "C:\Users\admin\anaconda3\envs\UVCamera2\Lib\threading.py", line 327 in wait
+  File "C:\Users\admin\anaconda3\envs\UVCamera2\Lib\queue.py", line 171 in get
+  File "d:\UVcode\UVmicroscopy\Camera.py", line 126 in QueueOut
+  File "d:\UVcode\UVmicroscopy\Camera.py", line 88 in run
+
+Thread 0x000041c8 (most recent call first):
+  File "d:\UVcode\UVmicroscopy\ThreadDO_150mm.py", line 399 in Move
+  File "d:\UVcode\UVmicroscopy\ThreadDO_150mm.py", line 457 in DirectMove
+  File "d:\UVcode\UVmicroscopy\ThreadDO_150mm.py", line 129 in QueueOut
+  File "d:\UVcode\UVmicroscopy\ThreadDO_150mm.py", line 120 in run
+
+Thread 0x0000460c (most recent call first):
+  File "C:\Users\admin\anaconda3\envs\UVCamera2\Lib\threading.py", line 327 in wait
+  File "C:\Users\admin\anaconda3\envs\UVCamera2\Lib\queue.py", line 171 in get
+  File "d:\UVcode\UVmicroscopy\ThreadWeaver.py", line 291 in Mosaic
+  File "d:\UVcode\UVmicroscopy\ThreadWeaver.py", line 56 in QueueOut
+  File "d:\UVcode\UVmicroscopy\ThreadWeaver.py", line 32 in run
+
+Thread 0x00007ff0 (most recent call first):
+  File "d:\UVcode\UVmicroscopy\SliceScanner.py", line 420 in <module>

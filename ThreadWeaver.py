@@ -7,7 +7,7 @@ Created on Wed Jan 24 11:10:17 2024
 
 #################################################################
 # THIS KING THREAD IS USING ART8912, WHICH IS MASTER AND the DO board WILL BE SLAVE
-from PyQt5.QtCore import  QThread
+from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import QDialog
 import time
 import numpy as np
@@ -21,11 +21,109 @@ import datetime
 from matplotlib import pyplot as plt
 
 class WeaverThread(QThread):
+    request_status = pyqtSignal(str)
+    request_set_value = pyqtSignal(str, float)
+    request_set_checked = pyqtSignal(str, bool)
+    request_set_text = pyqtSignal(str, str)
+    request_set_enabled = pyqtSignal(str, bool)
+    request_mosaic_preview = pyqtSignal(object)
+
     def __init__(self):
         super().__init__()
         
         self.mosaic = None
         self.exit_message = 'weaver thread successfully exited'
+        self.request_status.connect(self._apply_status_message)
+        self.request_set_value.connect(self._apply_set_value)
+        self.request_set_checked.connect(self._apply_set_checked)
+        self.request_set_text.connect(self._apply_set_text)
+        self.request_set_enabled.connect(self._apply_set_enabled)
+        self.request_mosaic_preview.connect(self._apply_mosaic_preview)
+
+    @pyqtSlot(str)
+    def _apply_status_message(self, message):
+        try:
+            self.ui.statusbar.showMessage(str(message))
+        except Exception:
+            pass
+
+    @pyqtSlot(str, float)
+    def _apply_set_value(self, widget_name, value):
+        widget = getattr(self.ui, widget_name, None)
+        if widget is not None:
+            try:
+                widget.setValue(float(value))
+            except Exception:
+                pass
+
+    @pyqtSlot(str, bool)
+    def _apply_set_checked(self, widget_name, checked):
+        widget = getattr(self.ui, widget_name, None)
+        if widget is not None:
+            try:
+                widget.setChecked(bool(checked))
+            except Exception:
+                pass
+
+    @pyqtSlot(str, str)
+    def _apply_set_text(self, widget_name, text):
+        widget = getattr(self.ui, widget_name, None)
+        if widget is not None:
+            try:
+                widget.setText(str(text))
+            except Exception:
+                pass
+
+    @pyqtSlot(str, bool)
+    def _apply_set_enabled(self, widget_name, enabled):
+        widget = getattr(self.ui, widget_name, None)
+        if widget is not None:
+            try:
+                widget.setEnabled(bool(enabled))
+            except Exception:
+                pass
+
+    @pyqtSlot(object)
+    def _apply_mosaic_preview(self, mosaic_pattern_flattern):
+        try:
+            pixmap = ScatterPlot(mosaic_pattern_flattern)
+            self.ui.MosaicLabel.setPixmap(pixmap)
+        except Exception:
+            pass
+
+    def _set_status_message(self, message):
+        self.request_status.emit(str(message))
+
+    def _set_ui_value(self, widget_name, value):
+        self.request_set_value.emit(str(widget_name), float(value))
+
+    def _set_ui_checked(self, widget_name, checked):
+        self.request_set_checked.emit(str(widget_name), bool(checked))
+
+    def _set_ui_text(self, widget_name, text):
+        self.request_set_text.emit(str(widget_name), str(text))
+
+    def _set_ui_enabled(self, widget_name, enabled):
+        self.request_set_enabled.emit(str(widget_name), bool(enabled))
+
+    def _refresh_mosaic_preview(self, mosaic_pattern_flattern):
+        self.request_mosaic_preview.emit(mosaic_pattern_flattern)
+
+    def _wait_do_back(self, context=''):
+        write_breadcrumb('WEAVER_WAIT_DO_BACK_BEGIN', log=self.log, detail=context)
+        start = time.time()
+        result = self.DOBackQueue.get()
+        dt_ms = int((time.time() - start) * 1000)
+        write_breadcrumb('WEAVER_WAIT_DO_BACK_DONE', log=self.log, detail=f'{context}; dt_ms={dt_ms}; result={result}')
+        return result
+
+    def _wait_c_back(self, context=''):
+        write_breadcrumb('WEAVER_WAIT_C_BACK_BEGIN', log=self.log, detail=context)
+        start = time.time()
+        result = self.CBackQueue.get()
+        dt_ms = int((time.time() - start) * 1000)
+        write_breadcrumb('WEAVER_WAIT_C_BACK_DONE', log=self.log, detail=f'{context}; dt_ms={dt_ms}')
+        return result
         
     def run(self):
         # self.InitMemory()
@@ -34,15 +132,15 @@ class WeaverThread(QThread):
     def QueueOut(self):
         self.item = self.queue.get()
         while self.item.action != 'exit':
-            self.ui.statusbar.showMessage('Weaver thread is doing: '+self.item.action)
+            self._set_status_message('Weaver thread is doing: '+self.item.action)
             print('Weaver thread is doing: '+self.item.action)
             try:
                 if self.item.action == 'Snap':
                     message = self.Snap()
-                    self.ui.statusbar.showMessage(message)
+                    self._set_status_message(message)
                 elif self.item.action == 'Live':
                     message = self.Live()
-                    self.ui.statusbar.showMessage(message)
+                    self._set_status_message(message)
                 elif self.item.action in ['Mosaic']:
                     # make directories
                     if not os.path.exists(self.ui.DIR.toPlainText()+'/mosaic'):
@@ -57,13 +155,13 @@ class WeaverThread(QThread):
                     print(self.tile_flag)
                     an_action = DnSAction('WriteAgar', data = self.tile_flag, args = [self.total_Y, self.total_X]) # data in Memory[memoryLoc]
                     self.DnSQueue.put(an_action)
-                    self.ui.statusbar.showMessage(message)
+                    self._set_status_message(message)
                     # self.ui.PrintOut.append(message)
                     self.log.write(message)
-                    self.ui.PauseButton.setChecked(False)
-                    self.ui.PauseButton.setText('Pause')
-                    self.ui.RunButton.setChecked(False)
-                    self.ui.RunButton.setText('Go')
+                    self._set_ui_checked('PauseButton', False)
+                    self._set_ui_text('PauseButton', 'Pause')
+                    self._set_ui_checked('RunButton', False)
+                    self._set_ui_text('RunButton', 'Go')
                 elif self.item.action == 'Mosaic+Cut':
                     # make directories
                     if not os.path.exists(self.ui.DIR.toPlainText()+'/mosaic'):
@@ -73,42 +171,42 @@ class WeaverThread(QThread):
                     # if not os.path.exists(self.ui.DIR.toPlainText()+'/fitting'):
                     #     os.mkdir(self.ui.DIR.toPlainText()+'/fitting')
                     # disable partial vibratome settings to avoid parameter change during experiment
-                    self.ui.SMPthickness.setEnabled(False)
-                    self.ui.SliceZDepth.setEnabled(False)
+                    self._set_ui_enabled('SMPthickness', False)
+                    self._set_ui_enabled('SliceZDepth', False)
                     # self.ui.ImageZDepth.setEnabled(False)
-                    self.ui.SMPthickness.setEnabled(False)
+                    self._set_ui_enabled('SMPthickness', False)
                     if self.ui.PreMosaic.isChecked():
                         self.PreMosaic()
                     else:
                         self.LoadTileFlag()
                     message = self.OneImagePerCut()
-                    self.ui.statusbar.showMessage(message)
+                    self._set_status_message(message)
                     # self.ui.PrintOut.append(message)
                     self.log.write(message)
                     # re-enable settings
-                    self.ui.SMPthickness.setEnabled(True)
-                    self.ui.SliceZDepth.setEnabled(True)
+                    self._set_ui_enabled('SMPthickness', True)
+                    self._set_ui_enabled('SliceZDepth', True)
                     # self.ui.ImageZDepth.setEnabled(True)
-                    self.ui.SMPthickness.setEnabled(True)
+                    self._set_ui_enabled('SMPthickness', True)
                 elif self.item.action == 'SingleCut':
                     message = self.SingleCut(self.ui.SliceZStart.value())
-                    self.ui.statusbar.showMessage(message)
+                    self._set_status_message(message)
                     # self.ui.PrintOut.append(message)
                     self.log.write(message)
 
                 elif self.item.action == 'RptCut':
-                    self.ui.SMPthickness.setEnabled(False)
-                    self.ui.SliceZDepth.setEnabled(False)
+                    self._set_ui_enabled('SMPthickness', False)
+                    self._set_ui_enabled('SliceZDepth', False)
                     # self.ui.ImageZDepth.setEnabled(False)
-                    self.ui.SMPthickness.setEnabled(False)
+                    self._set_ui_enabled('SMPthickness', False)
                     message = self.RptCut(self.ui.SliceZStart.value(), np.uint16(self.ui.SMPthickness.value()*1000/self.ui.SliceZDepth.value()))
-                    self.ui.statusbar.showMessage(message)
+                    self._set_status_message(message)
                     # self.ui.PrintOut.append(message)
                     self.log.write(message)
-                    self.ui.SMPthickness.setEnabled(True)
-                    self.ui.SliceZDepth.setEnabled(True)
+                    self._set_ui_enabled('SMPthickness', True)
+                    self._set_ui_enabled('SliceZDepth', True)
                     # self.ui.ImageZDepth.setEnabled(True)
-                    self.ui.SMPthickness.setEnabled(True)
+                    self._set_ui_enabled('SMPthickness', True)
                     # self.ui.statusbar.showMessage(status)
 
             except Exception as error:
@@ -116,13 +214,13 @@ class WeaverThread(QThread):
                 self.log.write(message)
                 report_exception(self.ui, self.log, error, where=f"WeaverThread/{self.item.action}")
             # reset RUN button
-            self.ui.RunButton.setChecked(False)
-            self.ui.RunButton.setText('Go')
-            self.ui.PauseButton.setChecked(False)
-            self.ui.PauseButton.setText('Pause')
+            self._set_ui_checked('RunButton', False)
+            self._set_ui_text('RunButton', 'Go')
+            self._set_ui_checked('PauseButton', False)
+            self._set_ui_text('PauseButton', 'Pause')
             self.item = self.queue.get()
             
-        self.ui.statusbar.showMessage(self.exit_message)
+        self._set_status_message(self.exit_message)
             
             
     def Snap(self):
@@ -133,15 +231,15 @@ class WeaverThread(QThread):
         self.CQueue.put(an_action)
         an_action = DOAction('LightON')
         self.DOQueue.put(an_action)
-        self.DOBackQueue.get()
+        self._wait_do_back('Snap/LightON')
         an_action = DOAction('ConfigZstack')
         self.DOQueue.put(an_action)
         an_action = CAction('FiniteAcquire')
         self.CQueue.put(an_action)
-        self.CBackQueue.get()
+        self._wait_c_back('Snap/FiniteAcquire-ready')
         an_action = DOAction('Zstack')
         self.DOQueue.put(an_action)
-        images = self.CBackQueue.get()
+        images = self._wait_c_back('Snap/Zstack-images')
         an_action = DOAction('LightOFF')
         self.DOQueue.put(an_action)
         an_action = CAction('Stream_off')
@@ -157,26 +255,26 @@ class WeaverThread(QThread):
     def Live(self):
         # flush image queue
         Zstack = self.ui.Zstack.value()
-        self.ui.Zstack.setValue(1)
+        self._set_ui_value('Zstack', 1)
         while self.CQueue.qsize()>1:
             self.CQueue.get()
         an_action = CAction('Stream_on')
         self.CQueue.put(an_action)
         an_action = DOAction('LightON')
         self.DOQueue.put(an_action)
-        self.DOBackQueue.get()
+        self._wait_do_back('Live/LightON')
         an_action = CAction('ContinuousAcquire')
         self.CQueue.put(an_action)
         
         while self.ui.LiveButton.isChecked():
-            images = self.CBackQueue.get()
+            images = self._wait_c_back('Live/images')
             an_action = DnSAction('Snap', images) # data in Memory[memoryLoc]
             self.DnSQueue.put(an_action)
         an_action = DOAction('LightOFF')
         self.DOQueue.put(an_action)
         an_action = CAction('Stream_off')
         self.CQueue.put(an_action)
-        self.ui.Zstack.setValue(Zstack)
+        self._set_ui_value('Zstack', Zstack)
         message = 'Live succesfully finished'
         return message
         
@@ -189,7 +287,7 @@ class WeaverThread(QThread):
                                         self.ui.YFOV.value(),\
                                         self.ui.Overlap.value())
         if self.Mosaic_pattern is None:
-            self.ui.statusbar.showMessage(status)
+            self._set_status_message(status)
             self.log.write(status)
             return
         # get total number of strips, i.e.，xstage positions
@@ -241,7 +339,7 @@ class WeaverThread(QThread):
                                         self.ui.YFOV.value(),\
                                         self.ui.Overlap.value())
         if self.Mosaic_pattern is None:
-            self.ui.statusbar.showMessage(status)
+            self._set_status_message(status)
             self.log.write(status)
             return 'Error'
         # get total number of strips, i.e.，xstage positions
@@ -281,25 +379,25 @@ class WeaverThread(QThread):
                 if self.ui.RunButton.isChecked() and self.tile_flag[yy][xx] > 0:
                     
                     # stage move to start XYZ position
-                    self.ui.XPosition.setValue(self.Mosaic_pattern[0,yy,xx])
+                    self._set_ui_value('XPosition', self.Mosaic_pattern[0,yy,xx])
                     an_action = DOAction('Xmove2')
                     self.DOQueue.put(an_action)
-                    self.DOBackQueue.get()
-                    self.ui.YPosition.setValue(self.Mosaic_pattern[1,yy,xx])
+                    self._wait_do_back(f'Mosaic/Xmove2/yy={yy},xx={xx}')
+                    self._set_ui_value('YPosition', self.Mosaic_pattern[1,yy,xx])
                     an_action = DOAction('Ymove2')
                     self.DOQueue.put(an_action)
-                    self.DOBackQueue.get()
+                    self._wait_do_back(f'Mosaic/Ymove2/yy={yy},xx={xx}')
        
                     
                     an_action = DOAction('LightON')
                     self.DOQueue.put(an_action)
-                    self.DOBackQueue.get()
+                    self._wait_do_back(f'Mosaic/LightON/yy={yy},xx={xx}')
                     an_action = CAction('FiniteAcquire')
                     self.CQueue.put(an_action)
-                    self.CBackQueue.get()
+                    self._wait_c_back(f'Mosaic/FiniteAcquire-ready/yy={yy},xx={xx}')
                     an_action = DOAction('Zstack')
                     self.DOQueue.put(an_action)
-                    images = self.CBackQueue.get()
+                    images = self._wait_c_back(f'Mosaic/Zstack-images/yy={yy},xx={xx}')
                     
                     an_action = DOAction('LightOFF')
                     self.DOQueue.put(an_action)
@@ -307,11 +405,7 @@ class WeaverThread(QThread):
                     
                     # update mosaic pattern
                     self.Mosaic_pattern_flattern = self.Mosaic_pattern_flattern[:,1:]
-                    pixmap = ScatterPlot(self.Mosaic_pattern_flattern)
-                    # clear content on the waveformLabel
-                    self.ui.MosaicLabel.clear()
-                    # update iamge on the waveformLabel
-                    self.ui.MosaicLabel.setPixmap(pixmap)
+                    self._refresh_mosaic_preview(self.Mosaic_pattern_flattern)
                     # print([[xx,yy],[self.total_X, self.total_Y]])
                     an_action = DnSAction('Display_Mosaic', data = images, args = [[xx,yy],[self.total_X, self.total_Y]]) 
                     self.DnSQueue.put(an_action)  
@@ -414,8 +508,8 @@ class WeaverThread(QThread):
         # print(Agartiles_pre, np.sum(self.tile_flag), np.float32(Agartiles_pre) - np.float32(np.sum(self.tile_flag)))
         if np.float32(Agartiles_pre) - np.sum(np.float32(self.tile_flag))>30:
             print('large loss of tiles detected, manual check if light is blocked...')
-            self.ui.PauseButton.setChecked(True)
-            self.ui.PauseButton.setText('Resume')
+            self._set_ui_checked('PauseButton', True)
+            self._set_ui_text('PauseButton', 'Resume')
             
     
     def OneImagePerCut(self):
@@ -440,8 +534,8 @@ class WeaverThread(QThread):
                 return 'user stopped service'
             
             # move to X Y Z
-            self.ui.XPosition.setValue(self.ui.XStart.value())
-            self.ui.YPosition.setValue(self.ui.YStart.value())
+            self._set_ui_value('XPosition', self.ui.XStart.value())
+            self._set_ui_value('YPosition', self.ui.YStart.value())
             an_action = DOAction('Xmove2')
             self.DOQueue.put(an_action)
             self.DOBackQueue.get()
@@ -489,7 +583,7 @@ class WeaverThread(QThread):
     def SingleCut(self, zpos):
 
         # go to start Y
-        self.ui.YPosition.setValue(self.ui.SliceY.value())
+        self._set_ui_value('YPosition', self.ui.SliceY.value())
         an_action = DOAction('Ymove2')
         self.DOQueue.put(an_action)
         self.DOBackQueue.get()
@@ -504,7 +598,7 @@ class WeaverThread(QThread):
         
         # go to start X
        
-        self.ui.XPosition.setValue(self.ui.SliceX.value())
+        self._set_ui_value('XPosition', self.ui.SliceX.value())
         an_action = DOAction('Xmove2')
         self.DOQueue.put(an_action)
         self.DOBackQueue.get()
@@ -517,14 +611,14 @@ class WeaverThread(QThread):
             return 'user stopped service'
         
         # start vibratome
-        self.ui.VibEnabled.setText('Stop Vibratome')
-        self.ui.VibEnabled.setChecked(True)
+        self._set_ui_text('VibEnabled', 'Stop Vibratome')
+        self._set_ui_checked('VibEnabled', True)
         an_action = DOAction('startVibratome')
         self.DOQueue.put(an_action)
         self.DOBackQueue.get()
         
         # go to start Z
-        self.ui.ZPosition.setValue(zpos)
+        self._set_ui_value('ZPosition', zpos)
         an_action = DOAction('Zmove2')
         self.DOQueue.put(an_action)
         self.DOBackQueue.get()
@@ -537,8 +631,8 @@ class WeaverThread(QThread):
                 time.sleep(0.5)
         if not self.ui.RunButton.isChecked():
             # stop vibratome
-            self.ui.VibEnabled.setText('Start Vibratome')
-            self.ui.VibEnabled.setChecked(False)
+            self._set_ui_text('VibEnabled', 'Start Vibratome')
+            self._set_ui_checked('VibEnabled', False)
             an_action = DOAction('stopVibratome')
             self.DOQueue.put(an_action)
             self.DOBackQueue.get()
@@ -551,18 +645,18 @@ class WeaverThread(QThread):
             sign = 1
         else:
             sign = -1
-        self.ui.YPosition.setValue(self.ui.SliceLength.value()*sign+self.ui.YPosition.value())
+        self._set_ui_value('YPosition', self.ui.SliceLength.value()*sign+self.ui.YPosition.value())
         speed = self.ui.YSpeed.value()
         print(speed)
-        self.ui.YSpeed.setValue(self.ui.SliceSpeed.value())
+        self._set_ui_value('YSpeed', self.ui.SliceSpeed.value())
         print(self.ui.YSpeed.value())
         an_action = DOAction('Ymove2')
         self.DOQueue.put(an_action)
         self.DOBackQueue.get()
-        self.ui.YSpeed.setValue(speed)
+        self._set_ui_value('YSpeed', speed)
         # stop vibratome
-        self.ui.VibEnabled.setText('Start Vibratome')
-        self.ui.VibEnabled.setChecked(False)
+        self._set_ui_text('VibEnabled', 'Start Vibratome')
+        self._set_ui_checked('VibEnabled', False)
         an_action = DOAction('stopVibratome')
         self.DOQueue.put(an_action)
         self.DOBackQueue.get()
@@ -581,7 +675,7 @@ class WeaverThread(QThread):
         #     return message
         
         # go to start Y
-        self.ui.YPosition.setValue(self.ui.SliceY.value())
+        self._set_ui_value('YPosition', self.ui.SliceY.value())
         an_action = DOAction('Ymove2')
         self.DOQueue.put(an_action)
         self.DOBackQueue.get()
@@ -594,7 +688,7 @@ class WeaverThread(QThread):
         # ########################################################
         ########################################################
         # go to start X
-        self.ui.XPosition.setValue(self.ui.SliceX.value())
+        self._set_ui_value('XPosition', self.ui.SliceX.value())
         an_action = DOAction('Xmove2')
         self.DOQueue.put(an_action)
         self.DOBackQueue.get()
@@ -619,14 +713,14 @@ class WeaverThread(QThread):
         # ########################################################
         # slicing
         # start vibratome
-        self.ui.VibEnabled.setText('Stop Vibratome')
-        self.ui.VibEnabled.setChecked(True)
+        self._set_ui_text('VibEnabled', 'Stop Vibratome')
+        self._set_ui_checked('VibEnabled', True)
         an_action = DOAction('startVibratome')
         self.DOQueue.put(an_action)
         self.DOBackQueue.get()
         for ii in range(cuts):
             # Z stage move up
-            self.ui.ZPosition.setValue(start_height+self.ui.SliceZDepth.value()/1000.0*ii)
+            self._set_ui_value('ZPosition', start_height+self.ui.SliceZDepth.value()/1000.0*ii)
             an_action = DOAction('Zmove2')
             self.DOQueue.put(an_action)
             self.DOBackQueue.get()
@@ -635,13 +729,13 @@ class WeaverThread(QThread):
                 sign = 1
             else:
                 sign = -1
-            self.ui.YPosition.setValue(self.ui.SliceLength.value()*sign+self.ui.YPosition.value())
+            self._set_ui_value('YPosition', self.ui.SliceLength.value()*sign+self.ui.YPosition.value())
             speed = self.ui.YSpeed.value()
-            self.ui.YSpeed.setValue(self.ui.SliceSpeed.value())
+            self._set_ui_value('YSpeed', self.ui.SliceSpeed.value())
             an_action = DOAction('Ymove2')
             self.DOQueue.put(an_action)
             self.DOBackQueue.get()
-            self.ui.YSpeed.setValue(speed)
+            self._set_ui_value('YSpeed', speed)
             
             if self.ui.PauseButton.isChecked():
                 while self.ui.PauseButton.isChecked() and self.ui.RunButton.isChecked():
@@ -649,15 +743,15 @@ class WeaverThread(QThread):
             if not self.ui.RunButton.isChecked():
                 message = 'user stopped acquisition...'
                 # stop vibratome
-                self.ui.VibEnabled.setText('Start Vibratome')
-                self.ui.VibEnabled.setChecked(False)
+                self._set_ui_text('VibEnabled', 'Start Vibratome')
+                self._set_ui_checked('VibEnabled', False)
                 an_action = DOAction('stopVibratome')
                 self.DOQueue.put(an_action)
                 self.DOBackQueue.get()
                 return message
                 
             # move Y stage back to position
-            self.ui.YPosition.setValue(self.ui.SliceY.value())
+            self._set_ui_value('YPosition', self.ui.SliceY.value())
             an_action = DOAction('Ymove2')
             self.DOQueue.put(an_action)
             self.DOBackQueue.get()
@@ -668,8 +762,8 @@ class WeaverThread(QThread):
             if not self.ui.RunButton.isChecked():
                 message = 'user stopped acquisition...'
                 # stop vibratome
-                self.ui.VibEnabled.setText('Start Vibratome')
-                self.ui.VibEnabled.setChecked(False)
+                self._set_ui_text('VibEnabled', 'Start Vibratome')
+                self._set_ui_checked('VibEnabled', False)
                 an_action = DOAction('stopVibratome')
                 self.DOQueue.put(an_action)
                 self.DOBackQueue.get()
@@ -678,10 +772,10 @@ class WeaverThread(QThread):
 
 
         # stop vibratome
-        self.ui.VibEnabled.setText('Start Vibratome')
-        self.ui.VibEnabled.setChecked(False)
+        self._set_ui_text('VibEnabled', 'Start Vibratome')
+        self._set_ui_checked('VibEnabled', False)
         an_action = DOAction('stopVibratome')
         self.DOQueue.put(an_action)
         self.DOBackQueue.get()
-        self.ui.SliceZStart.setValue(self.ui.ZPosition.value())
+        self._set_ui_value('SliceZStart', self.ui.ZPosition.value())
         return 'Slice success'

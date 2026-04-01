@@ -38,6 +38,7 @@ class MainWindow(QMainWindow):
         self._settings_save_timer.setSingleShot(True)
         self._settings_save_timer.timeout.connect(self.SaveSettings)
         self.LoadSettings()
+        self.ui.PreMosaic.setChecked(True)
         self.setStageMinMax() 
         #################### load configuration settings
         self.update_Mosaic()

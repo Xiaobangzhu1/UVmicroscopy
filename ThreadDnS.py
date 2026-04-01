@@ -6,7 +6,7 @@ Created on Tue Dec 12 18:26:44 2023
 @author: admin
 """
 
-from PyQt5.QtCore import  QThread
+from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot
 from Generaic_functions import RGBImagePlot, report_exception
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,6 +17,11 @@ from libtiff import TIFF
 import time
 
 class DnSThread(QThread):
+    request_status = pyqtSignal(str)
+    request_image_refresh = pyqtSignal(object)
+    request_mosaic_refresh = pyqtSignal(object)
+    request_value_set = pyqtSignal(str, object)
+
     def __init__(self):
         super().__init__()
         self.SampleMosaic= []
@@ -25,6 +30,67 @@ class DnSThread(QThread):
         self.SnapNum = 1
         self.totalTiles = 0
         self.display_actions = 0
+        self.request_status.connect(self._apply_status_message)
+        self.request_image_refresh.connect(self._apply_image_refresh)
+        self.request_mosaic_refresh.connect(self._apply_mosaic_refresh)
+        self.request_value_set.connect(self._apply_value_set)
+
+    @pyqtSlot(str)
+    def _apply_status_message(self, message):
+        try:
+            self.ui.statusbar.showMessage(str(message))
+        except Exception:
+            pass
+
+    @pyqtSlot(object)
+    def _apply_image_refresh(self, image):
+        try:
+            if image is None:
+                return
+            scale = max(1, int(self.ui.scale.value()))
+            pixmap = RGBImagePlot(
+                matrix1=np.float32(image[::scale, ::scale]),
+                m=self.ui.Imagemin.value(),
+                M=self.ui.Imagemax.value(),
+            )
+            self.ui.Image.setPixmap(pixmap)
+        except Exception:
+            pass
+
+    @pyqtSlot(object)
+    def _apply_mosaic_refresh(self, mosaic):
+        try:
+            if mosaic is None:
+                return
+            pixmap = RGBImagePlot(
+                matrix1=mosaic,
+                m=self.ui.Mosaicmin.value(),
+                M=self.ui.Mosaicmax.value(),
+            )
+            self.ui.Mosaic.setPixmap(pixmap)
+        except Exception:
+            pass
+
+    @pyqtSlot(str, object)
+    def _apply_value_set(self, widget_name, value):
+        try:
+            widget = getattr(self.ui, widget_name, None)
+            if widget is not None:
+                widget.setValue(value)
+        except Exception:
+            pass
+
+    def _set_status_message(self, message):
+        self.request_status.emit(str(message))
+
+    def _refresh_image_view(self, image):
+        self.request_image_refresh.emit(image)
+
+    def _refresh_mosaic_view(self, mosaic):
+        self.request_mosaic_refresh.emit(mosaic)
+
+    def _set_ui_value(self, widget_name, value):
+        self.request_value_set.emit(str(widget_name), value)
         
     def run(self):
         self.sliceNum = self.ui.SliceN.value()
@@ -55,7 +121,7 @@ class DnSThread(QThread):
                     self.restart_tilenum()
                 elif self.item.action == 'change_slice_number':
                     self.sliceNum = self.ui.SliceN.value()
-                    self.ui.CuSlice.setValue(self.sliceNum)
+                    self._set_ui_value('CuSlice', self.sliceNum)
                 elif self.item.action == 'WriteAgar':
                     self.WriteAgar(self.item.data, self.item.args)
                 elif self.item.action == 'Init_Mosaic':
@@ -65,7 +131,7 @@ class DnSThread(QThread):
                     
                 else:
                     message = 'Display and save thread is doing something invalid' + self.item.action
-                    self.ui.statusbar.showMessage(message)
+                    self._set_status_message(message)
                     # self.ui.PrintOut.append(message)
                     self.log.write(message)
                 if time.time()-start>1:
@@ -78,7 +144,7 @@ class DnSThread(QThread):
             # print(num, 'th display\n')
             self.item = self.queue.get()
             
-        self.ui.statusbar.showMessage("Display and save Thread successfully exited...")
+        self._set_status_message("Display and save Thread successfully exited...")
             
     def print_display_counts(self):
         message = str(self.display_actions)+ self.ui.ACQMode.currentText() +' displayed\n'
@@ -102,11 +168,7 @@ class DnSThread(QThread):
         else:
             self.image = data[0]
         # print(self.image[0,0:5])
-        pixmap = RGBImagePlot(matrix1 = np.float32(self.image[::scale, ::scale]), m=self.ui.Imagemin.value(), M=self.ui.Imagemax.value())
-        # clear content on the waveformLabel
-        # self.ui.Image.clear()
-        # update iamge on the waveformLabel
-        self.ui.Image.setPixmap(pixmap)
+        self._refresh_image_view(self.image)
         
         if self.ui.Save.isChecked():
             
@@ -126,9 +188,7 @@ class DnSThread(QThread):
         Ypixels = self.ui.Height.value()//2
         self.SampleMosaic = np.zeros([Ytiles*(Ypixels//scale), Xtiles*(Xpixels//scale)], dtype=np.uint16)
 
-        pixmap = RGBImagePlot(matrix1=self.SampleMosaic, m=self.ui.Mosaicmin.value(), M=self.ui.Mosaicmax.value())
-        # self.ui.Mosaic.clear()
-        self.ui.Mosaic.setPixmap(pixmap)
+        self._refresh_mosaic_view(self.SampleMosaic)
 
     
     
@@ -147,14 +207,10 @@ class DnSThread(QThread):
         else:
             self.image = data[0]
             
-        pixmap = RGBImagePlot(matrix1 = np.float32(self.image[::scale, ::scale]), m=self.ui.Imagemin.value(), M=self.ui.Imagemax.value())
-        # clear content on the waveformLabel
-        # self.ui.Image.clear()
-        # update iamge on the waveformLabel
-        self.ui.Image.setPixmap(pixmap)
+        self._refresh_image_view(self.image)
         
         tileMean = np.mean(self.image)
-        self.ui.tileMean.setValue(tileMean)
+        self._set_ui_value('tileMean', tileMean)
         
         Xtiles = args[1][0]
         Ytiles = args[1][1]
@@ -164,9 +220,7 @@ class DnSThread(QThread):
         self.SampleMosaic[Ypixels//scale*Y:Ypixels//scale*(Y+1),\
                   Xpixels//scale*X:Xpixels//scale*(X+1)] = self.image[::scale, ::scale]
     
-        pixmap = RGBImagePlot(matrix1=self.SampleMosaic, m=self.ui.Mosaicmin.value(), M=self.ui.Mosaicmax.value())
-        # self.ui.Mosaic.clear()
-        self.ui.Mosaic.setPixmap(pixmap)
+        self._refresh_mosaic_view(self.SampleMosaic)
         if self.ui.Save.isChecked():
             filenametiff, filenamebin = self.MosaicFilename([Ypixels,Xpixels,Zpixels])
             try:
@@ -193,11 +247,7 @@ class DnSThread(QThread):
     def Update_contrast_Image(self):
         if self.ui.Imagemin.value() != self.Imagemin or self.ui.Imagemax.value() != self.Imagemax:
             try:
-                pixmap = RGBImagePlot(matrix1 = np.float32(self.image), m=self.ui.Imagemin.value(), M=self.ui.Imagemax.value())
-                # clear content on the waveformLabel
-                # self.ui.Image.clear()
-                # update iamge on the waveformLabel
-                self.ui.Image.setPixmap(pixmap)
+                self._refresh_image_view(self.image)
             except:
                 pass
             self.Imagemax = self.ui.Imagemax.value()
@@ -206,11 +256,7 @@ class DnSThread(QThread):
     def Update_contrast_Mosaic(self):
         if self.ui.Mosaicmin.value() != self.Mosaicmin or self.ui.Mosaicmax.value() != self.Mosaicmax:
             try:
-                pixmap = RGBImagePlot(matrix1=self.SampleMosaic, m=self.ui.Mosaicmin.value(), M=self.ui.Mosaicmax.value())
-                # clear content on the waveformLabel
-                self.ui.SampleMosaic.clear()
-                # update iamge on the waveformLabel
-                self.ui.SampleMosaic.setPixmap(pixmap)
+                self._refresh_mosaic_view(self.SampleMosaic)
             except:
                 pass
             self.Mosaicmax = self.ui.Mosaicmax.value()
@@ -221,7 +267,7 @@ class DnSThread(QThread):
         self.tileNum = 1
         self.sliceNum = self.sliceNum+1
         print('/n slicenum: ', self.sliceNum,'/n')
-        self.ui.CuSlice.setValue(self.sliceNum)
+        self._set_ui_value('CuSlice', self.sliceNum)
         # if not os.path.exists(self.ui.DIR.toPlainText()+'/mosaic/slice'+str(self.sliceNum)):
         #     os.mkdir(self.ui.DIR.toPlainText()+'/mosaic/slice'+str(self.sliceNum))
         # if not os.path.exists(self.ui.DIR.toPlainText()+'/surf/vol'+str(self.sliceNum)):

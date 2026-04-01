@@ -23,10 +23,94 @@ import io
 import traceback
 import threading
 import datetime
+import configparser
 
 _BREADCRUMB_LOCK = threading.Lock()
 _BREADCRUMB_SEQ = 0
 _BREADCRUMB_PATH = os.path.join(os.getcwd(), 'crash_breadcrumb.log')
+_BREADCRUMB_CFG_PATH = os.path.join(os.getcwd(), 'config.ini')
+_BREADCRUMB_LEVEL_CACHE = None
+_BREADCRUMB_LEVEL_MTIME = None
+_BREADCRUMB_LEVEL_LAST_CHECK = None
+
+_BREADCRUMB_BASIC_TAGS = {
+    'DO_LIGHT_ON_BEGIN',
+    'DO_LIGHT_ON_DONE',
+    'DO_LIGHT_OFF_BEGIN',
+    'DO_LIGHT_OFF_DONE',
+    'DO_LIGHT_A_ON_BEGIN',
+    'DO_LIGHT_A_ON_DONE',
+    'DO_LIGHT_B_ON_BEGIN',
+    'DO_LIGHT_B_ON_DONE',
+    'DO_MOVE_BEGIN',
+    'DO_MOVE_DONE',
+    'CAMERA_FINITE_ACQUIRE_BEGIN',
+    'CAMERA_FINITE_ACQUIRE_DONE',
+    'CAMERA_STREAM_ON_BEFORE',
+    'CAMERA_STREAM_ON_AFTER',
+    'CAMERA_STREAM_OFF_BEFORE',
+    'CAMERA_STREAM_OFF_AFTER',
+}
+
+
+def _normalize_breadcrumb_level(raw):
+    text = str(raw).strip().lower()
+    if text in ('0', 'off', 'basic', 'simple', 'minimal', 'low'):
+        return 'basic'
+    if text in ('1', 'on', 'verbose', 'detail', 'detailed', 'full', 'high'):
+        return 'verbose'
+    return 'verbose'
+
+
+def _get_breadcrumb_level():
+    """Read breadcrumb level from config.ini with lightweight cache."""
+    global _BREADCRUMB_LEVEL_CACHE
+    global _BREADCRUMB_LEVEL_MTIME
+    global _BREADCRUMB_LEVEL_LAST_CHECK
+
+    now = datetime.datetime.now()
+    if _BREADCRUMB_LEVEL_LAST_CHECK is not None:
+        dt = (now - _BREADCRUMB_LEVEL_LAST_CHECK).total_seconds()
+        if dt < 1.0 and _BREADCRUMB_LEVEL_CACHE is not None:
+            return _BREADCRUMB_LEVEL_CACHE
+
+    _BREADCRUMB_LEVEL_LAST_CHECK = now
+    try:
+        mtime = os.path.getmtime(_BREADCRUMB_CFG_PATH)
+    except OSError:
+        mtime = None
+
+    if _BREADCRUMB_LEVEL_CACHE is not None and mtime == _BREADCRUMB_LEVEL_MTIME:
+        return _BREADCRUMB_LEVEL_CACHE
+
+    level = os.environ.get('UV_BREADCRUMB_LEVEL', 'verbose')
+    try:
+        cfg = configparser.ConfigParser()
+        if cfg.read(_BREADCRUMB_CFG_PATH, encoding='utf-8'):
+            if cfg.has_option('General', 'BreadcrumbLevel'):
+                level = cfg.get('General', 'BreadcrumbLevel')
+    except Exception:
+        pass
+
+    level = _normalize_breadcrumb_level(level)
+    _BREADCRUMB_LEVEL_CACHE = level
+    _BREADCRUMB_LEVEL_MTIME = mtime
+    return level
+
+
+def _should_emit_breadcrumb(tag):
+    """Filter breadcrumb output by configured verbosity."""
+    level = _get_breadcrumb_level()
+    if level == 'verbose':
+        return True
+
+    # Always keep safety/diagnostic critical events.
+    critical_keywords = ('EXCEPTION', 'ERROR', 'INVALID', 'TIMEOUT', 'DISABLED')
+    for key in critical_keywords:
+        if key in tag:
+            return True
+
+    return tag in _BREADCRUMB_BASIC_TAGS
 
 class LOG():
     def __init__(self, ui):
@@ -65,6 +149,9 @@ def parse_debug_flag(name, default=False):
 
 def write_breadcrumb(tag, log=None, detail=''):
     """Write a single-line flushed breadcrumb for crash boundary tracing."""
+    if not _should_emit_breadcrumb(tag):
+        return ''
+
     global _BREADCRUMB_SEQ
     with _BREADCRUMB_LOCK:
         _BREADCRUMB_SEQ += 1

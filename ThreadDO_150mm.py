@@ -70,11 +70,13 @@ ZCH = pow(2,2) # port 0 line2
 
 class DOThread(QThread):
     request_set_value = pyqtSignal(str, float)
+    request_status = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
         self.DOtask = None
         self.request_set_value.connect(self._apply_set_value)
+        self.request_status.connect(self._apply_status_message)
 
     @pyqtSlot(str, float)
     def _apply_set_value(self, widget_name, value):
@@ -84,6 +86,16 @@ class DOThread(QThread):
 
     def _set_ui_value(self, widget_name, value):
         self.request_set_value.emit(widget_name, float(value))
+
+    @pyqtSlot(str)
+    def _apply_status_message(self, message):
+        try:
+            self.ui.statusbar.showMessage(str(message))
+        except Exception:
+            pass
+
+    def _set_status_message(self, message):
+        self.request_status.emit(str(message))
 
     def _validate_move_params(self, axis, speed, distance_per_revolve, waveform_len):
         if speed is None or speed <= 0:
@@ -185,7 +197,7 @@ class DOThread(QThread):
                 
                 else:
                     message = 'DO thread is doing something undefined: '+self.item.action
-                    self.ui.statusbar.showMessage(message)
+                    self._set_status_message(message)
                     print(message)
                     # self.ui.PrintOut.append(message)
                     self.log.write(message)
@@ -194,7 +206,7 @@ class DOThread(QThread):
                 self.log.write(message)
                 report_exception(self.ui, self.log, error, where=f"DOThread/{self.item.action}")
             self.item = self.queue.get()
-        self.ui.statusbar.showMessage('DO thread successfully exited')
+        self._set_status_message('DO thread successfully exited')
     def Init_all_termial(self):
         # piezo terminal
         self.PiezoAO = self.ui.AODOboard.toPlainText()+'/'+self.ui.PiezoAO.currentText()
@@ -220,7 +232,7 @@ class DOThread(QThread):
         self._set_ui_value('ZMcurrent', self.ui.ZMPosition.value())
         message = "Stage position updated..."
     
-        self.ui.statusbar.showMessage(message)
+        self._set_status_message(message)
         # self.ui.PrintOut.append(message)
         self.log.write(message)
         print(message)
@@ -237,7 +249,7 @@ class DOThread(QThread):
         
         message = "Stage position updated..."
 
-        self.ui.statusbar.showMessage(message)
+        self._set_status_message(message)
         # self.ui.PrintOut.append(message)
         self.log.write(message)
         print(message)
@@ -319,10 +331,11 @@ class DOThread(QThread):
             speed = self.ui.XSpeed.value()
             pos = self.ui.XPosition.value() if target_pos is None else target_pos
             if pos>self.ui.Xmax.value()or pos<self.ui.Xmin.value():
-                message = 'X target postion invalid, abort...'
+                message = f'X move2 action aborted: target position out of range (target={pos}, range=[{self.ui.Xmin.value()}, {self.ui.Xmax.value()}])'
                 # self.ui.PrintOut.append(message)
                 self.log.write(message)
                 print(message)
+                write_breadcrumb('DO_MOVE_ABORTED', log=self.log, detail=message)
                 return message
             distance = pos-self.ui.Xcurrent.value()
             if distance > 0:
@@ -338,10 +351,11 @@ class DOThread(QThread):
             speed = self.ui.YSpeed.value()
             pos = self.ui.YPosition.value() if target_pos is None else target_pos
             if pos>self.ui.Ymax.value() or pos<self.ui.Ymin.value():
-                message = 'Y target postion invalid, abort...'
+                message = f'Y move2 action aborted: target position out of range (target={pos}, range=[{self.ui.Ymin.value()}, {self.ui.Ymax.value()}])'
                 # self.ui.PrintOut.append(message)
                 self.log.write(message)
                 print(message)
+                write_breadcrumb('DO_MOVE_ABORTED', log=self.log, detail=message)
                 return message
             distance = pos-self.ui.Ycurrent.value()
             if distance > 0:
@@ -357,10 +371,11 @@ class DOThread(QThread):
             speed = self.ui.ZSpeed.value()
             pos = self.ui.ZPosition.value() if target_pos is None else target_pos
             if pos>self.ui.Zmax.value() or pos<self.ui.Zmin.value():
-                message = 'Z target postion invalid, abort...'
+                message = f'Z move2 action aborted: target position out of range (target={pos}, range=[{self.ui.Zmin.value()}, {self.ui.Zmax.value()}])'
                 # self.ui.PrintOut.append(message)
                 self.log.write(message)
                 print(message)
+                write_breadcrumb('DO_MOVE_ABORTED', log=self.log, detail=message)
                 return message
             distance = pos-self.ui.Zcurrent.value()
             if distance > 0:
@@ -372,11 +387,15 @@ class DOThread(QThread):
             enable = 0#XDISABLE + YDISABLE
             
         if np.abs(distance) < 0.003:
-            message = axis + ' move2 action aborted'
+            message = (
+                f'{axis} move2 action aborted: |delta|<{0.003} mm '
+                f'(delta={distance:.6f}, current={getattr(self.ui, axis + "current").value()}, target={pos})'
+            )
             # self.ui.PrintOut.append(message)
             print(message)
             self.log.write(message)
-            return 0
+            write_breadcrumb('DO_MOVE_ABORTED', log=self.log, detail=message)
+            return message
         if not (SIM or self.SIM):
             write_breadcrumb('DO_MOVE_BEGIN', log=self.log, detail=f'axis={axis}, distance={distance}, speed={speed}')
             with daq.Task('Move_task') as DOtask, daq.Task('stageEnable') as stageEnabletask:
@@ -402,6 +421,8 @@ class DOThread(QThread):
                 DOwaveform = np.uint32(DOwaveform * line)
                 rate = self._validate_move_params(axis, speed, DISTANCE, len(DOwaveform))
                 if rate is None:
+                    message = f'{axis} move2 action aborted: invalid move parameters (see DO_PARAM_INVALID)'
+                    write_breadcrumb('DO_MOVE_ABORTED', log=self.log, detail=message)
                     return
                 message = axis+' moving: '+str(round(np.sum(DOwaveform)/line/25000*DISTANCE*sign,3))+'mm'+' target pos: '+str(pos)
                 print(message)
@@ -452,10 +473,13 @@ class DOThread(QThread):
         message = 'X :'+str(self.ui.Xcurrent.value())+' Y :'+str(round(self.ui.Ycurrent.value(),2))+' Z :'+str(self.ui.Zcurrent.value())
         print(message)
         self.log.write(message)
+        return 0
         
     def DirectMove(self, axis):
-        self.Move(axis)
-        self.DOBackQueue.put(0)
+        result = self.Move(axis)
+        if result is None:
+            result = 0
+        self.DOBackQueue.put(result)
         
     def StepMove(self, axis, Direction):
         write_breadcrumb('DO_STEP_MOVE_BEGIN', log=self.log, detail=f'axis={axis}, direction={Direction}')
@@ -484,31 +508,55 @@ class DOThread(QThread):
             
 
     def Light_off(self):
+        write_breadcrumb('DO_LIGHT_OFF_BEGIN', log=self.log)
         if not (SIM or self.SIM):
             with daq.Task() as light_task:
+                write_breadcrumb('DO_LIGHT_ADD_CHAN_BEFORE', log=self.log, detail=f'line={self.LEDEnable}')
                 light_task.do_channels.add_do_chan(self.LEDEnable, line_grouping=LineGrouping.CHAN_PER_LINE)
+                write_breadcrumb('DO_LIGHT_ADD_CHAN_AFTER', log=self.log)
+                write_breadcrumb('DO_LIGHT_WRITE_BEFORE', log=self.log, detail='value=[0,0]')
                 light_task.write([0, 0])
+                write_breadcrumb('DO_LIGHT_WRITE_AFTER', log=self.log)
+        write_breadcrumb('DO_LIGHT_OFF_DONE', log=self.log)
         
     def LightA_on(self):
+        write_breadcrumb('DO_LIGHT_A_ON_BEGIN', log=self.log)
         if not (SIM or self.SIM):
             with daq.Task() as light_task:
+                write_breadcrumb('DO_LIGHT_ADD_CHAN_BEFORE', log=self.log, detail=f'line={self.LEDEnable}')
                 light_task.do_channels.add_do_chan(self.LEDEnable, line_grouping=LineGrouping.CHAN_PER_LINE)
+                write_breadcrumb('DO_LIGHT_ADD_CHAN_AFTER', log=self.log)
+                write_breadcrumb('DO_LIGHT_WRITE_BEFORE', log=self.log, detail='value=[1,0]')
                 light_task.write([1, 0])
+                write_breadcrumb('DO_LIGHT_WRITE_AFTER', log=self.log)
         self.DOBackQueue.put('Light Turned On')
+        write_breadcrumb('DO_LIGHT_A_ON_DONE', log=self.log)
         
     def Light_on(self):
+        write_breadcrumb('DO_LIGHT_ON_BEGIN', log=self.log)
         if not (SIM or self.SIM):
             with daq.Task() as light_task:
+                write_breadcrumb('DO_LIGHT_ADD_CHAN_BEFORE', log=self.log, detail=f'line={self.LEDEnable}')
                 light_task.do_channels.add_do_chan(self.LEDEnable, line_grouping=LineGrouping.CHAN_PER_LINE)
+                write_breadcrumb('DO_LIGHT_ADD_CHAN_AFTER', log=self.log)
+                write_breadcrumb('DO_LIGHT_WRITE_BEFORE', log=self.log, detail='value=[1,1]')
                 light_task.write([1, 1])
+                write_breadcrumb('DO_LIGHT_WRITE_AFTER', log=self.log)
         self.DOBackQueue.put('Light Turned On')
+        write_breadcrumb('DO_LIGHT_ON_DONE', log=self.log)
     
     def LightB_on(self):
+        write_breadcrumb('DO_LIGHT_B_ON_BEGIN', log=self.log)
         if not (SIM or self.SIM):
             with daq.Task() as light_task:
+                write_breadcrumb('DO_LIGHT_ADD_CHAN_BEFORE', log=self.log, detail=f'line={self.LEDEnable}')
                 light_task.do_channels.add_do_chan(self.LEDEnable, line_grouping=LineGrouping.CHAN_PER_LINE)
+                write_breadcrumb('DO_LIGHT_ADD_CHAN_AFTER', log=self.log)
+                write_breadcrumb('DO_LIGHT_WRITE_BEFORE', log=self.log, detail='value=[0,1]')
                 light_task.write([0, 1])
+                write_breadcrumb('DO_LIGHT_WRITE_AFTER', log=self.log)
         self.DOBackQueue.put('Light Turned On')
+        write_breadcrumb('DO_LIGHT_B_ON_DONE', log=self.log)
             
     def DirectMicroMove(self):
         self.MoveMicro()

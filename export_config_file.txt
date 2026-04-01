@@ -8,9 +8,9 @@ DeviceFeatureType: Device remote features
 # Device = Daheng::GigECamera -- Daheng generic GigEVision camera interface -- Device version = 2.19.4 -- Product GUID = 2E2DF749-F559-4eea-80DE-022025E0D623 -- Product version GUID = 5941FAB5-8209-41bd-AB71-DEE7C8DDE7E2
 SequencerMode	Off
 SequencerConfigurationMode	Off
-ExposureTime	100000
+ExposureTime	200000
 GainSelector	DigitalAll
-Gain	12
+Gain	0
 GainSelector	DigitalAll
 GammaMode	sRGB
 SensorShutterMode	Global

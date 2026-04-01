@@ -131,43 +131,58 @@ class Camera(QThread):
         
     
     def FiniteAcquire(self):
+        write_breadcrumb('CAMERA_FINITE_ACQUIRE_BEGIN', log=self.log, detail=f'zstack={self.ui.Zstack.value()}')
         if self.hcam is not None:
             all_images = []
+            write_breadcrumb('CAMERA_TRIGGER_MODE_SET_BEFORE', log=self.log, detail='mode=On')
             self.hcam_fr.get_enum_feature("TriggerMode").set("On")
+            write_breadcrumb('CAMERA_TRIGGER_MODE_SET_AFTER', log=self.log)
             self.CBackQueue.put(0)
             for i in range(self.ui.Zstack.value()):
                 try:
+                    write_breadcrumb('CAMERA_GET_IMAGE_BEFORE', log=self.log, detail=f'index={i}')
                     buf = self.hcam.data_stream[0].get_image(timeout=10000)
+                    write_breadcrumb('CAMERA_GET_IMAGE_AFTER', log=self.log, detail=f'index={i}')
                     img = buf.get_numpy_array()
                     img = np.rot90(img,3)
                     all_images.append(img)
-                except:
+                except Exception as ex:
+                    write_breadcrumb('CAMERA_GET_IMAGE_TIMEOUT', log=self.log, detail=f'index={i}; error={ex}')
                     print('timeout error! Camera did not receive trigger')
                 
         else:
             all_images = np.uint16(np.random.rand(self.ui.Zstack.value(), self.ui.Width.value(), self.ui.Height.value())*4096)
+            write_breadcrumb('CAMERA_FINITE_ACQUIRE_SIMULATED', log=self.log, detail=f'frames={len(all_images)}')
         # print(np.array(all_images).shape)
         self.CBackQueue.put(np.array(all_images))
+        write_breadcrumb('CAMERA_FINITE_ACQUIRE_DONE', log=self.log, detail=f'frames={len(all_images)}')
             
         # data shape is (Z, Y, X)
     def ContinuousAcquire(self):
+        write_breadcrumb('CAMERA_CONTINUOUS_ACQUIRE_BEGIN', log=self.log)
         if self.hcam is not None:
+            write_breadcrumb('CAMERA_TRIGGER_MODE_SET_BEFORE', log=self.log, detail='mode=Off')
             self.hcam_fr.get_enum_feature("TriggerMode").set("Off")
+            write_breadcrumb('CAMERA_TRIGGER_MODE_SET_AFTER', log=self.log)
         while self.ui.LiveButton.isChecked():
             if self.hcam is not None:
                 all_images = []
                 try:
+                    write_breadcrumb('CAMERA_GET_IMAGE_BEFORE', log=self.log, detail='live')
                     buf = self.hcam.data_stream[0].get_image(timeout=10000)
+                    write_breadcrumb('CAMERA_GET_IMAGE_AFTER', log=self.log, detail='live')
                     img = buf.get_numpy_array()
                     img = np.rot90(img,3)
 
                     all_images.append(img)
-                except:
+                except Exception as ex:
+                    write_breadcrumb('CAMERA_GET_IMAGE_TIMEOUT', log=self.log, detail=f'live; error={ex}')
                     print('timeout error! Camera did not receive trigger')
             else:
                 all_images = np.uint16(np.random.rand(self.ui.Zstack.value(), self.ui.Width.value(), self.ui.Height.value())*4096)
             # print(np.array(all_images).shape)
             self.CBackQueue.put(np.array(all_images))
+        write_breadcrumb('CAMERA_CONTINUOUS_ACQUIRE_DONE', log=self.log)
             
 
     # 初始化并打开真实相机
@@ -226,11 +241,15 @@ class Camera(QThread):
     # 拍照功能（一次触发）
     def Stream_on(self):
         if self.hcam is not None:
+            write_breadcrumb('CAMERA_STREAM_ON_BEFORE', log=self.log)
             self.hcam.stream_on() 
+            write_breadcrumb('CAMERA_STREAM_ON_AFTER', log=self.log)
 
     def Stream_off(self):
         if self.hcam is not None:
+            write_breadcrumb('CAMERA_STREAM_OFF_BEFORE', log=self.log)
             self.hcam.stream_off() 
+            write_breadcrumb('CAMERA_STREAM_OFF_AFTER', log=self.log)
             
 
     # 设置曝光时间（从界面获取值）
