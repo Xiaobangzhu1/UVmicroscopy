@@ -117,6 +117,22 @@ class WeaverThread(QThread):
         write_breadcrumb('WEAVER_WAIT_DO_BACK_DONE', log=self.log, detail=f'{context}; dt_ms={dt_ms}; result={result}')
         return result
 
+    def _move_ok(self, result, context=''):
+        # DO move returns a dict in new path; keep compatibility with legacy numeric/string ack.
+        if not isinstance(result, dict):
+            return True
+        status = str(result.get('status', '')).lower()
+        reason = str(result.get('reason', '')).lower()
+        if status == 'moved':
+            return True
+        # tiny_delta means the stage is already at target (or within tolerance).
+        if status == 'aborted' and reason == 'tiny_delta':
+            return True
+        detail = result.get('detail', '')
+        self.log.write(f'MOVE_NOT_OK [{context}] status={status}, reason={reason}, detail={detail}')
+        write_breadcrumb('WEAVER_MOVE_NOT_OK', log=self.log, detail=f'{context}; status={status}; reason={reason}')
+        return False
+
     def _wait_c_back(self, context=''):
         write_breadcrumb('WEAVER_WAIT_C_BACK_BEGIN', log=self.log, detail=context)
         start = time.time()
@@ -143,10 +159,7 @@ class WeaverThread(QThread):
                     self._set_status_message(message)
                 elif self.item.action in ['Mosaic']:
                     # make directories
-                    if not os.path.exists(self.ui.DIR.toPlainText()+'/mosaic'):
-                        os.mkdir(self.ui.DIR.toPlainText()+'/mosaic')
-                    if not os.path.exists(self.ui.DIR_remote.toPlainText()+'/mosaic'):
-                        os.mkdir(self.ui.DIR_remote.toPlainText()+'/mosaic')
+                    os.makedirs(self.ui.DIR.toPlainText()+'/mosaic', exist_ok=True)
                     if self.ui.PreMosaic.isChecked():
                         self.PreMosaic()
                     else:
@@ -164,8 +177,7 @@ class WeaverThread(QThread):
                     self._set_ui_text('RunButton', 'Go')
                 elif self.item.action == 'Mosaic+Cut':
                     # make directories
-                    if not os.path.exists(self.ui.DIR.toPlainText()+'/mosaic'):
-                        os.mkdir(self.ui.DIR.toPlainText()+'/mosaic')
+                    os.makedirs(self.ui.DIR.toPlainText()+'/mosaic', exist_ok=True)
                     # if not os.path.exists(self.ui.DIR.toPlainText()+'/surf'):
                     #     os.mkdir(self.ui.DIR.toPlainText()+'/surf')
                     # if not os.path.exists(self.ui.DIR.toPlainText()+'/fitting'):
@@ -379,14 +391,20 @@ class WeaverThread(QThread):
                 if self.ui.RunButton.isChecked() and self.tile_flag[yy][xx] > 0:
                     
                     # stage move to start XYZ position
-                    self._set_ui_value('XPosition', self.Mosaic_pattern[0,yy,xx])
-                    an_action = DOAction('Xmove2')
+                    x_target = float(self.Mosaic_pattern[0, yy, xx])
+                    y_target = float(self.Mosaic_pattern[1, yy, xx])
+                    self._set_ui_value('XPosition', x_target)
+                    an_action = DOAction('Xmove2', args=[x_target])
                     self.DOQueue.put(an_action)
-                    self._wait_do_back(f'Mosaic/Xmove2/yy={yy},xx={xx}')
-                    self._set_ui_value('YPosition', self.Mosaic_pattern[1,yy,xx])
-                    an_action = DOAction('Ymove2')
+                    x_result = self._wait_do_back(f'Mosaic/Xmove2/yy={yy},xx={xx}')
+                    if not self._move_ok(x_result, f'Mosaic/Xmove2/yy={yy},xx={xx}'):
+                        continue
+                    self._set_ui_value('YPosition', y_target)
+                    an_action = DOAction('Ymove2', args=[y_target])
                     self.DOQueue.put(an_action)
-                    self._wait_do_back(f'Mosaic/Ymove2/yy={yy},xx={xx}')
+                    y_result = self._wait_do_back(f'Mosaic/Ymove2/yy={yy},xx={xx}')
+                    if not self._move_ok(y_result, f'Mosaic/Ymove2/yy={yy},xx={xx}'):
+                        continue
        
                     
                     an_action = DOAction('LightON')
@@ -427,6 +445,11 @@ class WeaverThread(QThread):
         return 'Mosaic successfully finished...'
 
     def Re_evaluate_mosaic(self):
+        # Adaptive threshold-based tile pruning is disabled.
+        # Keep current tile_flag unchanged across rounds.
+        self.log.write('Re_evaluate_mosaic disabled: keep tile_flag unchanged')
+        return
+
         # evaluate the previous mosaic figure, remove empty tiles, and extend tissue boundary
         # self.surf = np.flip(np.rot90(self.DnSBackQueue.get()),0)
         self.surf = self.DnSBackQueue.get()
@@ -534,11 +557,13 @@ class WeaverThread(QThread):
                 return 'user stopped service'
             
             # move to X Y Z
-            self._set_ui_value('XPosition', self.ui.XStart.value())
-            self._set_ui_value('YPosition', self.ui.YStart.value())
-            an_action = DOAction('Xmove2')
+            x_target = float(self.ui.XStart.value())
+            y_target = float(self.ui.YStart.value())
+            self._set_ui_value('XPosition', x_target)
+            self._set_ui_value('YPosition', y_target)
+            an_action = DOAction('Xmove2', args=[x_target])
             self.DOQueue.put(an_action)
-            self.DOBackQueue.get()
+            self._wait_do_back('OneImagePerCut/Xmove2/start')
             ##################################################
             if self.ui.PauseButton.isChecked():
                 while self.ui.PauseButton.isChecked() and self.ui.RunButton.isChecked():
@@ -546,9 +571,9 @@ class WeaverThread(QThread):
             if not self.ui.RunButton.isChecked():
                 return 'user stopped service'
             ########################################################
-            an_action = DOAction('Ymove2')
+            an_action = DOAction('Ymove2', args=[y_target])
             self.DOQueue.put(an_action)
-            self.DOBackQueue.get()
+            self._wait_do_back('OneImagePerCut/Ymove2/start')
             ##################################################
             if self.ui.PauseButton.isChecked():
                 while self.ui.PauseButton.isChecked() and self.ui.RunButton.isChecked():
@@ -583,10 +608,11 @@ class WeaverThread(QThread):
     def SingleCut(self, zpos):
 
         # go to start Y
-        self._set_ui_value('YPosition', self.ui.SliceY.value())
-        an_action = DOAction('Ymove2')
+        y_target = float(self.ui.SliceY.value())
+        self._set_ui_value('YPosition', y_target)
+        an_action = DOAction('Ymove2', args=[y_target])
         self.DOQueue.put(an_action)
-        self.DOBackQueue.get()
+        self._wait_do_back('SingleCut/Ymove2/start')
         
         
         ##################################################
@@ -598,10 +624,11 @@ class WeaverThread(QThread):
         
         # go to start X
        
-        self._set_ui_value('XPosition', self.ui.SliceX.value())
-        an_action = DOAction('Xmove2')
+        x_target = float(self.ui.SliceX.value())
+        self._set_ui_value('XPosition', x_target)
+        an_action = DOAction('Xmove2', args=[x_target])
         self.DOQueue.put(an_action)
-        self.DOBackQueue.get()
+        self._wait_do_back('SingleCut/Xmove2/start')
         
         ##################################################
         if self.ui.PauseButton.isChecked():
@@ -618,10 +645,11 @@ class WeaverThread(QThread):
         self.DOBackQueue.get()
         
         # go to start Z
-        self._set_ui_value('ZPosition', zpos)
-        an_action = DOAction('Zmove2')
+        z_target = float(zpos)
+        self._set_ui_value('ZPosition', z_target)
+        an_action = DOAction('Zmove2', args=[z_target])
         self.DOQueue.put(an_action)
-        self.DOBackQueue.get()
+        self._wait_do_back('SingleCut/Zmove2/start')
         
         
         ##################################################
@@ -645,14 +673,15 @@ class WeaverThread(QThread):
             sign = 1
         else:
             sign = -1
-        self._set_ui_value('YPosition', self.ui.SliceLength.value()*sign+self.ui.YPosition.value())
+        y_cut_target = float(self.ui.SliceLength.value()*sign+self.ui.YPosition.value())
+        self._set_ui_value('YPosition', y_cut_target)
         speed = self.ui.YSpeed.value()
         print(speed)
         self._set_ui_value('YSpeed', self.ui.SliceSpeed.value())
         print(self.ui.YSpeed.value())
-        an_action = DOAction('Ymove2')
+        an_action = DOAction('Ymove2', args=[y_cut_target])
         self.DOQueue.put(an_action)
-        self.DOBackQueue.get()
+        self._wait_do_back('SingleCut/Ymove2/cut')
         self._set_ui_value('YSpeed', speed)
         # stop vibratome
         self._set_ui_text('VibEnabled', 'Start Vibratome')
@@ -675,10 +704,11 @@ class WeaverThread(QThread):
         #     return message
         
         # go to start Y
-        self._set_ui_value('YPosition', self.ui.SliceY.value())
-        an_action = DOAction('Ymove2')
+        y_target = float(self.ui.SliceY.value())
+        self._set_ui_value('YPosition', y_target)
+        an_action = DOAction('Ymove2', args=[y_target])
         self.DOQueue.put(an_action)
-        self.DOBackQueue.get()
+        self._wait_do_back('RptCut/Ymove2/start')
         ##################################################
         if self.ui.PauseButton.isChecked():
             while self.ui.PauseButton.isChecked() and self.ui.RunButton.isChecked():
@@ -688,10 +718,11 @@ class WeaverThread(QThread):
         # ########################################################
         ########################################################
         # go to start X
-        self._set_ui_value('XPosition', self.ui.SliceX.value())
-        an_action = DOAction('Xmove2')
+        x_target = float(self.ui.SliceX.value())
+        self._set_ui_value('XPosition', x_target)
+        an_action = DOAction('Xmove2', args=[x_target])
         self.DOQueue.put(an_action)
-        self.DOBackQueue.get()
+        self._wait_do_back('RptCut/Xmove2/start')
         ##################################################
         if self.ui.PauseButton.isChecked():
             while self.ui.PauseButton.isChecked() and self.ui.RunButton.isChecked():
@@ -720,21 +751,23 @@ class WeaverThread(QThread):
         self.DOBackQueue.get()
         for ii in range(cuts):
             # Z stage move up
-            self._set_ui_value('ZPosition', start_height+self.ui.SliceZDepth.value()/1000.0*ii)
-            an_action = DOAction('Zmove2')
+            z_target = float(start_height+self.ui.SliceZDepth.value()/1000.0*ii)
+            self._set_ui_value('ZPosition', z_target)
+            an_action = DOAction('Zmove2', args=[z_target])
             self.DOQueue.put(an_action)
-            self.DOBackQueue.get()
+            self._wait_do_back(f'RptCut/Zmove2/ii={ii}')
             # Move Y stage slowly to cut
             if self.ui.SliceDir.isChecked():
                 sign = 1
             else:
                 sign = -1
-            self._set_ui_value('YPosition', self.ui.SliceLength.value()*sign+self.ui.YPosition.value())
+            y_cut_target = float(self.ui.SliceLength.value()*sign+self.ui.YPosition.value())
+            self._set_ui_value('YPosition', y_cut_target)
             speed = self.ui.YSpeed.value()
             self._set_ui_value('YSpeed', self.ui.SliceSpeed.value())
-            an_action = DOAction('Ymove2')
+            an_action = DOAction('Ymove2', args=[y_cut_target])
             self.DOQueue.put(an_action)
-            self.DOBackQueue.get()
+            self._wait_do_back(f'RptCut/Ymove2/cut/ii={ii}')
             self._set_ui_value('YSpeed', speed)
             
             if self.ui.PauseButton.isChecked():
@@ -751,10 +784,11 @@ class WeaverThread(QThread):
                 return message
                 
             # move Y stage back to position
-            self._set_ui_value('YPosition', self.ui.SliceY.value())
-            an_action = DOAction('Ymove2')
+            y_back_target = float(self.ui.SliceY.value())
+            self._set_ui_value('YPosition', y_back_target)
+            an_action = DOAction('Ymove2', args=[y_back_target])
             self.DOQueue.put(an_action)
-            self.DOBackQueue.get()
+            self._wait_do_back(f'RptCut/Ymove2/back/ii={ii}')
             
             if self.ui.PauseButton.isChecked():
                 while self.ui.PauseButton.isChecked() and self.ui.RunButton.isChecked():

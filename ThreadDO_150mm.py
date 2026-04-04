@@ -136,11 +136,14 @@ class DOThread(QThread):
         while self.item.action != 'exit':
             try:
                 if self.item.action == 'Xmove2':
-                    self.DirectMove(axis = 'X')
+                    target = self.item.args[0] if isinstance(self.item.args, (list, tuple)) and len(self.item.args) > 0 else None
+                    self.DirectMove(axis='X', target_pos=target)
                 elif self.item.action == 'Ymove2':
-                    self.DirectMove(axis = 'Y')
+                    target = self.item.args[0] if isinstance(self.item.args, (list, tuple)) and len(self.item.args) > 0 else None
+                    self.DirectMove(axis='Y', target_pos=target)
                 elif self.item.action == 'Zmove2':
-                    self.DirectMove(axis = 'Z')
+                    target = self.item.args[0] if isinstance(self.item.args, (list, tuple)) and len(self.item.args) > 0 else None
+                    self.DirectMove(axis='Z', target_pos=target)
                 elif self.item.action == 'ZMmove2':
                     self.DirectMicroMove()
                 elif self.item.action == 'LightON':
@@ -336,7 +339,13 @@ class DOThread(QThread):
                 self.log.write(message)
                 print(message)
                 write_breadcrumb('DO_MOVE_ABORTED', log=self.log, detail=message)
-                return message
+                return {
+                    'axis': axis,
+                    'status': 'aborted',
+                    'reason': 'out_of_range',
+                    'detail': message,
+                    'target': pos,
+                }
             distance = pos-self.ui.Xcurrent.value()
             if distance > 0:
                 direction = XFORWARD
@@ -356,7 +365,13 @@ class DOThread(QThread):
                 self.log.write(message)
                 print(message)
                 write_breadcrumb('DO_MOVE_ABORTED', log=self.log, detail=message)
-                return message
+                return {
+                    'axis': axis,
+                    'status': 'aborted',
+                    'reason': 'out_of_range',
+                    'detail': message,
+                    'target': pos,
+                }
             distance = pos-self.ui.Ycurrent.value()
             if distance > 0:
                 direction = YFORWARD
@@ -376,7 +391,13 @@ class DOThread(QThread):
                 self.log.write(message)
                 print(message)
                 write_breadcrumb('DO_MOVE_ABORTED', log=self.log, detail=message)
-                return message
+                return {
+                    'axis': axis,
+                    'status': 'aborted',
+                    'reason': 'out_of_range',
+                    'detail': message,
+                    'target': pos,
+                }
             distance = pos-self.ui.Zcurrent.value()
             if distance > 0:
                 direction = ZFORWARD
@@ -395,7 +416,14 @@ class DOThread(QThread):
             print(message)
             self.log.write(message)
             write_breadcrumb('DO_MOVE_ABORTED', log=self.log, detail=message)
-            return message
+            return {
+                'axis': axis,
+                'status': 'aborted',
+                'reason': 'tiny_delta',
+                'detail': message,
+                'delta': float(distance),
+                'target': pos,
+            }
         if not (SIM or self.SIM):
             write_breadcrumb('DO_MOVE_BEGIN', log=self.log, detail=f'axis={axis}, distance={distance}, speed={speed}')
             with daq.Task('Move_task') as DOtask, daq.Task('stageEnable') as stageEnabletask:
@@ -423,7 +451,12 @@ class DOThread(QThread):
                 if rate is None:
                     message = f'{axis} move2 action aborted: invalid move parameters (see DO_PARAM_INVALID)'
                     write_breadcrumb('DO_MOVE_ABORTED', log=self.log, detail=message)
-                    return
+                    return {
+                        'axis': axis,
+                        'status': 'aborted',
+                        'reason': 'invalid_params',
+                        'detail': message,
+                    }
                 message = axis+' moving: '+str(round(np.sum(DOwaveform)/line/25000*DISTANCE*sign,3))+'mm'+' target pos: '+str(pos)
                 print(message)
                 # self.ui.PrintOut.append(message)
@@ -473,12 +506,18 @@ class DOThread(QThread):
         message = 'X :'+str(self.ui.Xcurrent.value())+' Y :'+str(round(self.ui.Ycurrent.value(),2))+' Z :'+str(self.ui.Zcurrent.value())
         print(message)
         self.log.write(message)
-        return 0
+        return {
+            'axis': axis,
+            'status': 'moved',
+            'reason': 'ok',
+            'target': pos,
+            'delta': float(distance),
+        }
         
-    def DirectMove(self, axis):
-        result = self.Move(axis)
+    def DirectMove(self, axis, target_pos=None):
+        result = self.Move(axis, target_pos=target_pos)
         if result is None:
-            result = 0
+            result = {'axis': axis, 'status': 'unknown', 'reason': 'none'}
         self.DOBackQueue.put(result)
         
     def StepMove(self, axis, Direction):

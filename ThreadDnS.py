@@ -223,18 +223,12 @@ class DnSThread(QThread):
         self._refresh_mosaic_view(self.SampleMosaic)
         if self.ui.Save.isChecked():
             filenametiff, filenamebin = self.MosaicFilename([Ypixels,Xpixels,Zpixels])
-            try:
-                # self.WriteData(data, [self.ui.DIR.toPlainText(),'/mosaic/',filenamebin])
-                tif = TIFF.open(self.ui.DIR_remote.toPlainText()+'/mosaic/'+filenametiff, mode='w')
-                for ii in range(Zpixels):
-                    tif.write_image(data[ii,:,:])
-                tif.close()
-            except Exception as error:
-                report_exception(self.ui, self.log, error, where='DnSThread/Display_Mosaic(remote save)')
-                tif = TIFF.open(self.ui.DIR.toPlainText()+'/mosaic/'+filenametiff, mode='w')
-                for ii in range(Zpixels):
-                    tif.write_image(data[ii,:,:])
-                tif.close()
+            mosaic_dir = os.path.join(self.ui.DIR.toPlainText(), 'mosaic')
+            os.makedirs(mosaic_dir, exist_ok=True)
+            tif = TIFF.open(os.path.join(mosaic_dir, filenametiff), mode='w')
+            for ii in range(Zpixels):
+                tif.write_image(data[ii,:,:])
+            tif.close()
     
     # 保存马赛克拼图图像
     def Save_Mosaic(self):
