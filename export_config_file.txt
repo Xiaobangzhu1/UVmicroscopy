@@ -8,14 +8,14 @@ DeviceFeatureType: Device remote features
 # Device = Daheng::GigECamera -- Daheng generic GigEVision camera interface -- Device version = 2.19.4 -- Product GUID = 2E2DF749-F559-4eea-80DE-022025E0D623 -- Product version GUID = 5941FAB5-8209-41bd-AB71-DEE7C8DDE7E2
 SequencerMode	Off
 SequencerConfigurationMode	Off
-ExposureTime	5000
+ExposureTime	600000
 GainSelector	DigitalAll
-Gain	0
+Gain	13
 GainSelector	DigitalAll
 GammaMode	sRGB
 SensorShutterMode	Global
-Width	2376
-Height	2368
+Width	2848
+Height	2848
 OffsetX	0
 OffsetY	0
 PixelFormat	Mono12
@@ -28,12 +28,12 @@ ReverseX	0
 ReverseY	0
 AcquisitionBurstFrameCount	1
 TriggerSelector	FrameStart
-TriggerMode	Off
+TriggerMode	On
 TriggerSelector	FrameBurstStart
 TriggerMode	Off
 TriggerSelector	FrameStart
 TriggerSelector	FrameStart
-TriggerSource	Software
+TriggerSource	Line0
 TriggerSelector	FrameBurstStart
 TriggerSource	Software
 TriggerSelector	FrameStart
@@ -62,8 +62,8 @@ ExposureDelay	0
 ExposureAuto	Off
 AutoExposureTimeMin	3
 AutoExposureTimeMax	1e+006
-AAROIWidth	2376
-AAROIHeight	2368
+AAROIWidth	2848
+AAROIHeight	2848
 AAROIOffsetX	0
 AAROIOffsetY	0
 ExpectedGrayValue	1920

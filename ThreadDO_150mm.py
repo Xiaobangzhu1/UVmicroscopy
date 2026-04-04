@@ -328,6 +328,10 @@ class DOThread(QThread):
         # Y axis use port 2 line 2-3 for enable and direction, use port 0 line 1 for steps
         # Z axis use port 2 line 4-5 for enable and direction, use port 0 line 2 for steps
         # enable low enables, enable high disables
+        x_current = float(self.ui.Xcurrent.value())
+        y_current = float(self.ui.Ycurrent.value())
+        z_current = float(self.ui.Zcurrent.value())
+
         if axis == 'X':
             line = XCH
             DISTANCE = XDISTANCE
@@ -346,7 +350,7 @@ class DOThread(QThread):
                     'detail': message,
                     'target': pos,
                 }
-            distance = pos-self.ui.Xcurrent.value()
+            distance = pos - x_current
             if distance > 0:
                 direction = XFORWARD
                 sign = 1
@@ -372,7 +376,7 @@ class DOThread(QThread):
                     'detail': message,
                     'target': pos,
                 }
-            distance = pos-self.ui.Ycurrent.value()
+            distance = pos - y_current
             if distance > 0:
                 direction = YFORWARD
                 sign = 1
@@ -398,7 +402,7 @@ class DOThread(QThread):
                     'detail': message,
                     'target': pos,
                 }
-            distance = pos-self.ui.Zcurrent.value()
+            distance = pos - z_current
             if distance > 0:
                 direction = ZFORWARD
                 sign = 1
@@ -408,9 +412,10 @@ class DOThread(QThread):
             enable = 0#XDISABLE + YDISABLE
             
         if np.abs(distance) < 0.003:
+            current_map = {'X': x_current, 'Y': y_current, 'Z': z_current}
             message = (
                 f'{axis} move2 action aborted: |delta|<{0.003} mm '
-                f'(delta={distance:.6f}, current={getattr(self.ui, axis + "current").value()}, target={pos})'
+                f'(delta={distance:.6f}, current={current_map.get(axis)}, target={pos})'
             )
             # self.ui.PrintOut.append(message)
             print(message)
@@ -497,13 +502,16 @@ class DOThread(QThread):
         if axis == 'X':
             self._set_ui_value('Xcurrent', pos)
             self._set_ui_value('XPosition', pos)
+            x_current = float(pos)
         elif axis == 'Y':
             self._set_ui_value('Ycurrent', pos)
             self._set_ui_value('YPosition', pos)
+            y_current = float(pos)
         elif axis == 'Z':
             self._set_ui_value('Zcurrent', pos)
             self._set_ui_value('ZPosition', pos)
-        message = 'X :'+str(self.ui.Xcurrent.value())+' Y :'+str(round(self.ui.Ycurrent.value(),2))+' Z :'+str(self.ui.Zcurrent.value())
+            z_current = float(pos)
+        message = 'X :'+str(x_current)+' Y :'+str(round(y_current,2))+' Z :'+str(z_current)
         print(message)
         self.log.write(message)
         return {
